@@ -12,7 +12,7 @@ its Wi-Fi setup, web server, settings, MQTT connection, clock, watchdog and Wi-F
 ## Features
 
 - Motion: reported as soon as the PIR sensor sees movement, and clear once nothing has moved for
-  `sensor.clear_after_s` (30 s by default, 5 s to an hour). The sensor is ignored for the first minute after
+  `sensor.clear_after_s` (15 s by default, 5 s to an hour). The sensor is ignored for the first minute after
   power-on while it settles. `/api/info` has `motion`: whether there's motion now, the time of the last motion and
   how many there have been since boot. `sensor.enabled` turns sensing off. Both it and the clear time apply at
   once. The onboard LED shows Wi-Fi, as on PlasmaStick, not motion.
@@ -25,8 +25,9 @@ its Wi-Fi setup, web server, settings, MQTT connection, clock, watchdog and Wi-F
   starts the USB bootloader instead. If Wi-Fi hasn't connected after 5 attempts since boot (about 2-3 minutes), the
   device restarts into setup mode by itself. Either way it keeps its saved settings until new ones are submitted,
   and if setup mode times out it carries on with them.
-- Web UI and JSON HTTP API on port 80. The Status tab shows the firmware version, uptime, time, free memory, Wi-Fi
-  and MQTT, all from `/api/info`; the other tabs hold the settings. An optional web password (Network tab) protects
+- Web UI and JSON HTTP API on port 80. The Status tab shows motion now, the last motion and the last 10
+  detections (when each started and cleared) beside the firmware version, uptime, time, free memory, Wi-Fi and
+  MQTT, all from `/api/info`; the other tabs hold the settings, the sensor's on the Device tab. An optional web password (Network tab) protects
   both with HTTP Basic auth (any username; `curl -u any:password`). It's sent unencrypted over your network, so it
   keeps out other people on the network rather than a determined attacker. Completing setup mode removes it, if
   it's forgotten. POSTs that a browser sends from another website's page are refused either way.

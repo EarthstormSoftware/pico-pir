@@ -172,7 +172,7 @@ def test_every_settings_field_on_the_page_is_a_config_setting(api):
     import re
     page_file = os.path.join(os.path.dirname(__file__), '..', 'src', 'www', 'index.html')
     page = open(page_file, encoding='utf-8').read()
-    names = re.findall(r'name="((?:device|wlan|mqtt|web)\.[\w.]+)"', page)
+    names = re.findall(r'name="((?:device|sensor|wlan|mqtt|web)\.[\w.]+)"', page)
     assert len(names) > 15
     cfg = api.get_config()
     write_only = {'web.password', 'web.clear_password', 'mqtt.password'}
@@ -193,6 +193,11 @@ def test_the_page_knows_which_settings_apply_live():
     live = re.search(r'var LIVE = \[([^\]]*)\]', open(page_file, encoding='utf-8').read()).group(1)
     on_page = {name.split('.', 1)[1] for name in re.findall(r"'(device\.[\w.]+)'", live)}
     assert on_page == set(LIVE_DEVICE_KEYS)
+    # The sensor's settings all apply at once.
+    page = open(page_file, encoding='utf-8').read()
+    sensor_fields = set(re.findall(r'name="(sensor\.\w+)"', page))
+    assert sensor_fields == {'sensor.enabled', 'sensor.clear_after_s'}
+    assert sensor_fields <= set(re.findall(r"'(sensor\.\w+)'", live))
 
 
 def test_watchdog_setting_needs_a_restart(api):
@@ -233,7 +238,7 @@ def test_the_settings_code_is_let_go_after_use(api):
 
 
 def test_sensor_settings_apply_without_a_restart(api):
-    assert api.get_config()['sensor'] == {'enabled': True, 'clear_after_s': 30}
+    assert api.get_config()['sensor'] == {'enabled': True, 'clear_after_s': 15}
     assert api.save_config({'sensor': {'enabled': False, 'clear_after_s': 120}}) == (True, None)
     cfg = api.device_config.sensorconfig
     assert (cfg.enabled, cfg.clear_after_s) == (False, 120)
@@ -254,9 +259,13 @@ def test_info_reports_motion(api):
 
     class Sensor:
         def info(self):
-            return {'enabled': True, 'settling': False, 'active': True, 'count': 3, 'last': 1700000000}
+            return {'enabled': True, 'settling': False, 'active': True, 'count': 3, 'last': 1700000000,
+                    'recent': [[1700000000, None], [1699999000, 1699999040]]}
     api.sensor = Sensor()
-    assert api.get_device_info()['motion']['last'] is None  # the clock isn't set yet
+    motion = api.get_device_info()['motion']
+    assert motion['last'] is None and motion['recent'] == [[None, None], [None, None]]  # the clock isn't set yet
     api.clock_set = True
-    assert api.get_device_info()['motion'] == {'enabled': True, 'settling': False, 'active': True, 'count': 3,
-                                               'last': '2023-11-14T22:13:20+00:00'}
+    api.utc_offset = 3600
+    assert api.get_device_info()['motion'] == {
+        'enabled': True, 'settling': False, 'active': True, 'count': 3, 'last': '2023-11-14T23:13:20+01:00',
+        'recent': [['2023-11-14T23:13:20+01:00', None], ['2023-11-14T22:56:40+01:00', '2023-11-14T22:57:20+01:00']]}

@@ -26,7 +26,7 @@ _DEFAULT_CONFIG = {
         # Read the PIR sensor at all; off, motion is never reported.
         "enabled": True,
         # Seconds without motion before it is reported clear (see motion.py).
-        "clear_after_s": 30,
+        "clear_after_s": 15,
     },
     "wlan": {
         "ssid": "",

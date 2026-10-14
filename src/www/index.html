@@ -28,6 +28,7 @@ h1{font-size:21px;color:var(--text);margin-bottom:6px}
 .chip{font-size:12px;padding:3px 9px;border-radius:10px;background:var(--chip);color:var(--text2)}
 .chip.ok{background:var(--ok-bg);color:var(--ok)}
 .chip.bad{background:var(--bad-bg);color:var(--bad)}
+.chip.motion{background:var(--accent);color:var(--on-accent);font-weight:700}
 .alert{margin:12px 20px 0;padding:10px 12px;border-radius:8px;background:var(--bad-bg);color:var(--bad);font-size:13px;text-align:left}
 /* CSS-only tabs - radio inputs drive panel visibility. The radios are hidden
    visually but stay focusable, so arrow keys and screen readers can switch tabs. */
@@ -46,9 +47,17 @@ nav label:hover{color:var(--text)}
 #tn:focus-visible~nav label[for=tn],
 #tm:focus-visible~nav label[for=tm]{outline:2px solid var(--accent);outline-offset:-4px;border-radius:6px}
 /* Status: label and value pairs */
-.facts{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;font-size:13px;margin-bottom:8px}
+.facts{display:grid;grid-template-columns:minmax(96px,max-content) 1fr;gap:6px 16px;font-size:13px;margin-bottom:8px}
 .facts dt{color:var(--muted)}
 .facts dd{color:var(--text);overflow-wrap:anywhere}
+.facts dd.motion{color:var(--accent);font-weight:700}
+/* Status: motion on one side, the device's health on the other; stacked on a phone */
+.status{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px 32px}
+/* Recent detections */
+.events{list-style:none;font-size:13px;margin-bottom:8px}
+.events li{padding:4px 0;border-bottom:1px solid var(--line);color:var(--text)}
+.events li:last-child{border-bottom:none}
+.events .when{color:var(--muted)}
 button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .msg{font-size:12px;color:var(--bad);min-height:16px;margin-top:4px}
 .msg.good{color:var(--ok)}
@@ -108,6 +117,18 @@ footer{font-size:11px;color:var(--muted);text-align:center;padding:10px 0 14px}
 
 <!-- STATUS PANEL -->
 <div class="pane" id="pst">
+  <div class="status">
+  <div>
+  <div class="sec">Motion</div>
+  <dl class="facts">
+    <dt>Now</dt><dd id="s_motion">&mdash;</dd>
+    <dt>Last motion</dt><dd id="s_last">&mdash;</dd>
+    <dt>Since boot</dt><dd id="s_count">&mdash;</dd>
+  </dl>
+  <div class="sec">Recent Detections</div>
+  <ul class="events" id="s_recent"></ul>
+  </div>
+  <div>
   <div class="sec">Device</div>
   <dl class="facts">
     <dt>Firmware</dt><dd id="s_version">&mdash;</dd>
@@ -122,12 +143,33 @@ footer{font-size:11px;color:var(--muted);text-align:center;padding:10px 0 14px}
     <dt>MQTT</dt><dd id="s_mqtt">&mdash;</dd>
   </dl>
   <p class="note" id="s_watchdog" hidden></p>
+  </div>
+  </div>
 </div>
 
 <!-- DEVICE PANEL -->
 <div class="pane" id="pd">
   <form class="settings">
     <div class="cols">
+    <div class="group">
+      <div class="sec">Sensor</div>
+      <label class="check"><input type="checkbox" name="sensor.enabled" id="sensor_enabled"> Detect motion</label>
+      <div class="frow">
+        <div class="field"><label for="clear_after_s">Clear After (s)</label>
+          <input type="number" required name="sensor.clear_after_s" id="clear_after_s" min="5" max="3600" aria-describedby="clear_help">
+        </div>
+      </div>
+      <p class="note" id="clear_help">Motion is reported straight away, and clear once the sensor has seen nothing for this long: 5 s to an hour.</p>
+      <details>
+        <summary>Wiring</summary>
+        <div class="frow">
+          <div class="field"><label for="pir_pin">Sensor Pin (GP number)</label>
+            <input type="number" required name="device.pir_pin" id="pir_pin" min="0" max="28" aria-describedby="pin_help">
+          </div>
+        </div>
+        <p class="note" id="pin_help">The GPIO the sensor's output is wired to: GP22 unless it's wired differently. Changing it restarts the device.</p>
+      </details>
+    </div>
     <div class="group">
       <div class="sec">Identity</div>
       <div class="frow">
@@ -322,6 +364,45 @@ function signal(r) {
   return r > -60 ? 'strong' : r > -70 ? 'good' : r > -80 ? 'weak' : 'very weak';
 }
 
+// Local times from the API (ISO 8601): the time of day, with the date unless it's today.
+function when(t, now) {
+  return (now && t.slice(0, 10) === now.slice(0, 10) ? '' : t.slice(0, 10) + ' ') + t.slice(11, 19);
+}
+function seconds(s) {
+  return s < 60 ? s + ' s' : s < 3600 ? Math.floor(s / 60) + 'm ' + s % 60 + 's' : duration(s);
+}
+function between(a, b) { return Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 1000)); }
+
+function motionState(m) {
+  return !m.enabled ? 'Sensing off' : m.settling ? 'Settling' : m.active ? 'Motion' : 'No motion';
+}
+
+function renderMotion(m, now) {
+  var s = el('s_motion');
+  s.textContent = !m.enabled ? 'Sensing off (Device tab)' :
+    m.settling ? 'Settling: the sensor is ignored for a minute after power-on' : m.active ? 'Motion' : 'No motion';
+  s.className = m.active ? 'motion' : '';
+  el('s_last').textContent = m.last ? when(m.last, now) + (now ? ', ' + seconds(between(m.last, now)) + ' ago' : '') :
+    m.count ? "Not known yet (the clock isn't set)" : 'None since boot';
+  el('s_count').textContent = m.count + (m.count === 1 ? ' detection' : ' detections');
+  var list = el('s_recent');
+  list.textContent = '';
+  if (!m.recent.length) {
+    var none = document.createElement('li');
+    none.textContent = 'None since boot';
+    list.appendChild(none);
+  }
+  m.recent.forEach(function (d, n) {
+    var li = document.createElement('li'), start = d[0], end = d[1], span = document.createElement('span');
+    li.textContent = start ? when(start, now) : 'Time not known';
+    span.className = 'when';
+    span.textContent = end ? ' to ' + when(end, now) + ' (' + seconds(between(start, end)) + ')' :
+      n === 0 && m.active ? ' to now' : '';
+    li.appendChild(span);
+    list.appendChild(li);
+  });
+}
+
 function render(i) {
   info = i;
   document.title = i.name;
@@ -334,6 +415,7 @@ function render(i) {
   st.textContent = 'Online';
   st.className = 'badge on';
 
+  if (i.motion) renderMotion(i.motion, i.time);
   el('s_version').textContent = i.version;
   el('s_uptime').textContent = duration(i.uptime_s);
   el('s_time').textContent = i.time ? i.time.replace('T', ' ') : 'Not set yet (it comes from the time server once Wi-Fi is up)';
@@ -349,6 +431,7 @@ function render(i) {
 
   var health = el('health'), problems = [];
   health.textContent = '';
+  if (i.motion) health.appendChild(chip(motionState(i.motion), i.motion.active ? 'motion' : ''));
   if (r === null) {
     health.appendChild(chip('Wi-Fi'));
   } else {
@@ -389,7 +472,8 @@ document.addEventListener('visibilitychange', function () { if (!document.hidden
 // mqtt.topic_base), so loading and saving work the same way for every field.
 // Settings in LIVE apply at once; changing any other one restarts the device,
 // and the Save button says so before it's pressed.
-var LIVE = ['device.log_level', 'device.utc_offset_min', 'device.dst', 'web.password', 'web.clear_password'];
+var LIVE = ['device.log_level', 'device.utc_offset_min', 'device.dst', 'sensor.enabled', 'sensor.clear_after_s',
+  'web.password', 'web.clear_password'];
 var settingsForms = document.querySelectorAll('form.settings');
 
 function fields(f) {

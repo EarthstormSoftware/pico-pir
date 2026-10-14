@@ -126,9 +126,12 @@ class DeviceAPI:
     def _motion_info(self):
         if self.sensor is None:
             return None
+        # Times only once the clock is set: before that it says 2021.
+        def iso(t):
+            return clock.iso(t, self.utc_offset) if t is not None and self.clock_set else None
         motion = self.sensor.info()
-        last = motion['last']
-        motion['last'] = clock.iso(last, self.utc_offset) if last is not None and self.clock_set else None
+        motion['last'] = iso(motion['last'])
+        motion['recent'] = [[iso(start), iso(end)] for start, end in motion['recent']]
         return motion
 
     def get_config(self):

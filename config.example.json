@@ -10,7 +10,7 @@
     },
     "sensor": {
         "enabled": true,
-        "clear_after_s": 30
+        "clear_after_s": 15
     },
     "wlan": {
         "ssid": "",

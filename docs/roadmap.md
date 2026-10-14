@@ -20,7 +20,7 @@ Home Assistant discovery of the health sensors, the clock from NTP, the watchdog
 - A setting to turn sensing off.
 - Tests for the timing logic, off the device.
 
-## 3. Web page
+## 3. Web page (done)
 
 The Status tab shows motion now, the last motion and recent events, as well as the device's health. The sensor's
 settings go on the Device tab.
