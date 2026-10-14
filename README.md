@@ -229,7 +229,12 @@ Assistant.
 - Phones don't reliably show a "Sign in to network" prompt for the setup access point, so open
   `http://192.168.4.1` yourself.
 
-#### Third-party code
+## Licence
 
-- [Microdot](https://github.com/miguelgrinberg/microdot), © Miguel Grinberg, MIT licence.
-- [mqtt_as](https://github.com/peterhinch/micropython-mqtt), © Peter Hinch, MIT licence.
+Pico PIR is released under the [MIT licence](LICENSE), © 2026 Earthstorm Software.
+
+It includes two libraries, each under its own MIT licence (full notices in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)):
+
+- [Microdot](https://github.com/miguelgrinberg/microdot), © 2019 Miguel Grinberg (`src/lib/microdot.py`).
+- [mqtt_as](https://github.com/peterhinch/micropython-mqtt), © 2017 Peter Hinch (`src/lib/mqtt_as/`).
