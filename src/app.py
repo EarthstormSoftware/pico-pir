@@ -5,6 +5,7 @@ from log import Log
 from deviceconfig import DeviceConfig
 from picoled import PicoLed
 from bootsel import BootselButton
+from motion import MotionSensor
 from wlan import WLAN
 from api import DeviceAPI
 from httpserver import HTTPServer
@@ -57,6 +58,10 @@ Log.info(TAG,'Initialising API and Web UI')
 device_api = DeviceAPI(device_config, pico_led)
 device_api.watchdog_stall = watchdog_stall
 bootsel = BootselButton(pico_led)
+
+Log.info(TAG,'Initialising PIR sensor')
+sensor = MotionSensor(device_config)
+device_api.sensor = sensor
 
 # Defer HTTPServer initialization to save memory at startup
 http_server = None
@@ -202,6 +207,7 @@ async def clock_sync():
             continue
         # Things timed by the clock move with it, so uptime and intervals stay right.
         device_api.shift_clock(moved)
+        sensor.shift_clock(moved)
         Log.set_start_time(Log.start_time + moved)
         # Local time from the new clock straight away (local_time() refreshes it
         # every 15 s, but its last sum used the 2021 the clock said before).
@@ -270,6 +276,7 @@ async def main(client):
     # Start long-running controllers once event loop is active.
     asyncio.create_task(pico_led.controller())
     asyncio.create_task(bootsel.controller())
+    asyncio.create_task(sensor.controller())
     asyncio.create_task(wlan.controller())
 
     Log.info(TAG,'Waiting for WLAN connection before starting HTTP server')

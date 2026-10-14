@@ -11,6 +11,11 @@ its Wi-Fi setup, web server, settings, MQTT connection, clock, watchdog and Wi-F
 
 ## Features
 
+- Motion: reported as soon as the PIR sensor sees movement, and clear once nothing has moved for
+  `sensor.clear_after_s` (30 s by default, 5 s to an hour). The sensor is ignored for the first minute after
+  power-on while it settles. `/api/info` has `motion`: whether there's motion now, the time of the last motion and
+  how many there have been since boot. `sensor.enabled` turns sensing off. Both it and the clear time apply at
+  once. The onboard LED shows Wi-Fi, as on PlasmaStick, not motion.
 - Wi-Fi setup without editing files: on first boot the device opens a `PicoPIR-SETUP` access point for 10 minutes.
   Join it, then open **`http://192.168.4.1`** in a browser. Pick your network from the list (or type the name of a
   hidden one), enter its password and choose Save & Connect; the device restarts onto your network. The Wi-Fi
@@ -40,7 +45,9 @@ its Wi-Fi setup, web server, settings, MQTT connection, clock, watchdog and Wi-F
 
 - Raspberry Pi Pico W.
 - A PIR sensor module with a digital output, wired to **GP22**. The HC-SR501 runs from 5 V (VBUS) and its output is
-  3.3 V, which the Pico can read directly.
+  3.3 V, which the Pico can read directly. Another pin can be set as `device.pir_pin` (a reset keeps it).
+- On the HC-SR501, turn the time knob fully anticlockwise (about 3 s) and set the jumper to repeat (H), so the
+  firmware decides how long motion lasts. After its output drops it ignores movement for about 3 s.
 
 ## Pre-requisites
 
@@ -120,7 +127,8 @@ gitignored, so passwords won't be committed).
 Wi-Fi credentials and the device name are set through setup mode and stored in `provisioning.json` on the device.
 
 Saving settings only restarts the device when it has to: the device name, the Wi-Fi and MQTT settings, the time
-server and the watchdog are read at boot, while the time zone, log level and web password apply at once. The Save
+server, the watchdog and the sensor's pin are read at boot, while the time zone, log level, web password and the
+other sensor settings apply at once. The Save
 button says "Save & Restart" when a change needs a restart.
 
 The Device tab has two reset buttons. **Reset settings** puts everything back to its default (including the MQTT
@@ -141,7 +149,8 @@ With MQTT enabled (MQTT tab, or `mqtt` in `config.json`), the device uses these 
 With **Home Assistant discovery** turned on (`mqtt.ha_discovery`), the device publishes retained discovery configs
 under `homeassistant/sensor/<name>/` (the `homeassistant` prefix is `mqtt.ha_prefix`), so it appears in Home
 Assistant as a device with diagnostic sensors: Wi-Fi signal, uptime, free memory and IP address. Turning discovery
-off removes them on the next connection. The motion sensor itself comes in step 4 of the roadmap.
+off removes them on the next connection. Motion itself comes to MQTT and Home Assistant in step 4 of the
+roadmap.
 
 Changing the topic base, the discovery prefix or the device name restarts the device. On its next connection it
 clears the retained messages it left on the old topics, so nothing stale is left on the broker or in Home

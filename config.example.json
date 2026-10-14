@@ -5,7 +5,12 @@
         "watchdog": true,
         "ntp_server": "pool.ntp.org",
         "utc_offset_min": 0,
-        "dst": "none"
+        "dst": "none",
+        "pir_pin": 22
+    },
+    "sensor": {
+        "enabled": true,
+        "clear_after_s": 30
     },
     "wlan": {
         "ssid": "",

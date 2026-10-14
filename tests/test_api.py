@@ -38,6 +38,9 @@ def test_save_writes_changes_on_top_of_the_merged_config(api):
     ({'mqtt': {'queue_len': 0}}, 'queue_len must be >= 1'),
     ({'mqtt': {'topic_base': 'home/#'}}, 'topic_base cannot contain the wildcards + or #'),
     ({'mqtt': {'ha_prefix': ''}}, 'ha_prefix cannot be empty'),
+    ({'device': {'pir_pin': 29}}, 'pir_pin must be a GPIO number, 0-28'),
+    ({'sensor': {'clear_after_s': 4}}, 'clear_after_s must be 5-3600 seconds'),
+    ({'sensor': {'clear_after_s': '30'}}, 'clear_after_s must be 5-3600 seconds'),
 ])
 def test_invalid_updates_are_rejected(api, updates, error):
     assert api.save_config(updates) == (False, error)
@@ -227,3 +230,33 @@ def test_the_settings_code_is_let_go_after_use(api):
     api.get_config()
     api.save_config({'device': {'log_level': 1}})
     assert 'settings' not in sys.modules
+
+
+def test_sensor_settings_apply_without_a_restart(api):
+    assert api.get_config()['sensor'] == {'enabled': True, 'clear_after_s': 30}
+    assert api.save_config({'sensor': {'enabled': False, 'clear_after_s': 120}}) == (True, None)
+    cfg = api.device_config.sensorconfig
+    assert (cfg.enabled, cfg.clear_after_s) == (False, 120)
+    assert saved_config(api)['sensor']['clear_after_s'] == 120
+    assert not api.restart_required()
+
+
+def test_the_sensor_pin_needs_a_restart_and_survives_a_reset(api):
+    assert api.get_config()['device']['pir_pin'] == 22
+    assert api.save_config({'device': {'pir_pin': 15}}) == (True, None)
+    assert api.restart_required()
+    api.reset(keep_wifi=True)
+    assert DeviceConfig.loadConfigFromFile().pir_pin == 15
+
+
+def test_info_reports_motion(api):
+    assert api.get_device_info()['motion'] is None  # no sensor
+
+    class Sensor:
+        def info(self):
+            return {'enabled': True, 'settling': False, 'active': True, 'count': 3, 'last': 1700000000}
+    api.sensor = Sensor()
+    assert api.get_device_info()['motion']['last'] is None  # the clock isn't set yet
+    api.clock_set = True
+    assert api.get_device_info()['motion'] == {'enabled': True, 'settling': False, 'active': True, 'count': 3,
+                                               'last': '2023-11-14T22:13:20+00:00'}

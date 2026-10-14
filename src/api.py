@@ -62,6 +62,8 @@ class DeviceAPI:
         # connection error, so the web UI can show why MQTT isn't connected.
         self.mqtt_client = None
         self.mqtt_error = None
+        # Set by app.py: the motion sensor (motion.MotionSensor).
+        self.sensor = None
         # Set by app.py: how long the firmware had stalled when the watchdog
         # last restarted the board, or None.
         self.watchdog_stall = None
@@ -115,10 +117,19 @@ class DeviceAPI:
                 'connected': bool(client and client.isconnected()),
                 'error': self.mqtt_error,
             },
+            'motion': self._motion_info(),
             'watchdog_stall': self.watchdog_stall,
             'mem_free': gc.mem_free(),
             'mem_alloc': gc.mem_alloc(),
         }
+
+    def _motion_info(self):
+        if self.sensor is None:
+            return None
+        motion = self.sensor.info()
+        last = motion['last']
+        motion['last'] = clock.iso(last, self.utc_offset) if last is not None and self.clock_set else None
+        return motion
 
     def get_config(self):
         """The settings, as GET /api/config shows them (no passwords)."""

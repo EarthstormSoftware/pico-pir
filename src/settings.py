@@ -7,7 +7,7 @@ checks for every setting are a fair amount of code to keep in memory.
 import time
 import ujson
 from log import Log
-from deviceconfig import DeviceConfig, is_valid_utc_offset
+from deviceconfig import DeviceConfig, SensorConfig, is_valid_utc_offset, is_valid_pin, is_valid_clear_after
 import clock
 from passwords import hash_password
 from wificrypto import encrypt_password
@@ -26,6 +26,11 @@ def view(api):
             'ntp_server': dc.ntp_server,
             'utc_offset_min': dc.utc_offset_min,
             'dst': dc.dst,
+            'pir_pin': dc.pir_pin,
+        },
+        'sensor': {
+            'enabled': dc.sensorconfig.enabled,
+            'clear_after_s': dc.sensorconfig.clear_after_s,
         },
         'wlan': {
             'ssid': dc.wlanconfig.ssid,
@@ -59,10 +64,11 @@ def save(api, updates):
         # Work on a copy of the cached config, so a rejected update can't leave
         # half-applied changes behind for the next save.
         cfg = ujson.loads(ujson.dumps(api._config_cache))
-        for section in ('device', 'wlan', 'mqtt'):
+        for section in ('device', 'sensor', 'wlan', 'mqtt'):
             cfg.setdefault(section, {})
 
         dev = updates.get('device', {})
+        sensor = updates.get('sensor', {})
         wlan = updates.get('wlan', {})
         mqtt = updates.get('mqtt', {})
 
@@ -95,6 +101,18 @@ def save(api, updates):
             if v not in (0, 1, 2):
                 return False, 'log_level must be 0, 1 or 2'
             cfg['device']['log_level'] = v
+        if 'pir_pin' in dev:
+            if not is_valid_pin(dev['pir_pin']):
+                return False, 'pir_pin must be a GPIO number, 0-28'
+            cfg['device']['pir_pin'] = dev['pir_pin']
+
+        # Sensor section
+        if 'enabled' in sensor:
+            cfg['sensor']['enabled'] = bool(sensor['enabled'])
+        if 'clear_after_s' in sensor:
+            if not is_valid_clear_after(sensor['clear_after_s']):
+                return False, 'clear_after_s must be 5-3600 seconds'
+            cfg['sensor']['clear_after_s'] = sensor['clear_after_s']
 
         # WLAN section (SSID comes from provisioning, not config.json)
         if 'connect_timeout' in wlan:
@@ -163,7 +181,7 @@ def save(api, updates):
         if new_hash != api.web_password_hash:
             api.web_password_hash = new_hash
             api.accepted_auth = None
-        apply_live(api, cfg['device'])
+        apply_live(api, cfg['device'], cfg['sensor'])
         # A new time zone shows at once (app.py keeps it up to date after).
         api.utc_offset = Log.utc_offset = clock.offset_s(time.time(), api.device_config.utc_offset_min,
                                                           api.device_config.dst)
@@ -176,12 +194,14 @@ def save(api, updates):
         return False, str(e)
 
 
-def apply_live(api, dev):
-    """Apply the saved settings that don't need a restart."""
+def apply_live(api, dev, sensor):
+    """Apply the saved settings that don't need a restart: the live device
+    settings, and all the sensor's (motion.py reads them on every poll)."""
     from api import LIVE_DEVICE_KEYS  # api is loaded already: it's the caller
     dc = api.device_config
     for key in LIVE_DEVICE_KEYS:
         if key in dev:
             setattr(dc, key, dev[key])
+    dc.sensorconfig = SensorConfig(sensor)
     if Log.level != dc.log_level:
         Log.set_log_level(dc.log_level)

@@ -19,6 +19,14 @@ _DEFAULT_CONFIG = {
         # Local time: minutes ahead of UTC, and the daylight-saving rule (see clock.py).
         "utc_offset_min": 0,
         "dst": "none",
+        # The GPIO the PIR sensor's output is wired to.
+        "pir_pin": 22,
+    },
+    "sensor": {
+        # Read the PIR sensor at all; off, motion is never reported.
+        "enabled": True,
+        # Seconds without motion before it is reported clear (see motion.py).
+        "clear_after_s": 30,
     },
     "wlan": {
         "ssid": "",
@@ -48,7 +56,7 @@ _DEFAULT_CONFIG = {
 }
 
 # Device settings that describe the hardware rather than a preference: a reset keeps them.
-HARDWARE_KEYS = ()
+HARDWARE_KEYS = ("pir_pin",)
 
 DEVICE_NAME_FILE = "device_name.json"
 RETIRED_TOPICS_FILE = "retired_topics.json"
@@ -57,6 +65,16 @@ RETIRED_TOPICS_FILE = "retired_topics.json"
 def is_valid_utc_offset(value):
     """True for a UTC offset in minutes: -12:00 to +14:00, in quarter hours."""
     return isinstance(value, int) and not isinstance(value, bool) and -720 <= value <= 840 and value % 15 == 0
+
+
+def is_valid_pin(value):
+    """True for a Pico W GPIO number."""
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 28
+
+
+def is_valid_clear_after(value):
+    """True for a sensor.clear_after_s: whole seconds, 5 s to an hour."""
+    return isinstance(value, int) and not isinstance(value, bool) and 5 <= value <= 3600
 
 
 # Written by wlan.py to ask for setup mode on the next boot; removed when read.
@@ -166,6 +184,12 @@ class DeviceConfig:
             Log.warn(TAG, f'Ignoring dst {self.dst!r}; it must be none, eu or us')
             self.dst = 'none'
 
+        self.pir_pin = configdata["device"]["pir_pin"]
+        if not is_valid_pin(self.pir_pin):
+            Log.warn(TAG, f'Ignoring pir_pin {self.pir_pin!r}; it must be a GPIO number, 0-28')
+            self.pir_pin = _DEFAULT_CONFIG["device"]["pir_pin"]
+
+        self.sensorconfig = SensorConfig(configdata["sensor"])
         self.wlanconfig = WlanConfig(configdata["wlan"])
         self.mqttconfig = MQTTConfig(self.device_name, configdata["mqtt"])
         self.web_password_hash = configdata["web"].get("password_hash", "")
@@ -312,6 +336,17 @@ class DeviceConfig:
         Log.info(TAG,'Saving configuration to file')
         with open('config.json', 'w') as f:
             ujson.dump(configdata, f)
+
+
+class SensorConfig:
+    """The sensor settings. They apply as soon as they're saved (see settings.apply_live)."""
+
+    def __init__(self, sensorconfig):
+        self.enabled = bool(sensorconfig["enabled"])
+        self.clear_after_s = sensorconfig["clear_after_s"]
+        if not is_valid_clear_after(self.clear_after_s):
+            Log.warn(TAG, f'Ignoring clear_after_s {self.clear_after_s!r}; it must be 5-3600')
+            self.clear_after_s = _DEFAULT_CONFIG["sensor"]["clear_after_s"]
 
 
 class WlanConfig:

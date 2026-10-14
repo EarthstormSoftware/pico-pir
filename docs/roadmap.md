@@ -10,14 +10,13 @@ with an optional password, settings saved to `config.json`, MQTT with the retain
 Home Assistant discovery of the health sensors, the clock from NTP, the watchdog, Wi-Fi updates, `deploy.ps1` and
 `device_log.py`. The Pico W has no button, so holding BOOTSEL for 5 s restarts into setup mode.
 
-## 2. The sensor
+## 2. The sensor (done)
 
 - Read the PIR output (GP22) without blocking; ignore the first 30-60 s after power-on while it settles.
 - A "clear after" time: motion is reported straight away, and clear once nothing has moved for that long. With the
   HC-SR501, set its time knob fully anticlockwise (about 3 s) and its jumper to repeat (H), so the firmware
   decides the timing. It ignores motion for about 3 s after its output drops, so shorter gaps can't be seen.
 - Last motion time, and a count of detections.
-- The onboard LED can show motion.
 - A setting to turn sensing off.
 - Tests for the timing logic, off the device.
 
@@ -31,7 +30,7 @@ settings go on the Device tab.
 One device, with:
 - a motion `binary_sensor` (`device_class: motion`);
 - the last motion as a timestamp sensor;
-- the clear time as a `number`, the LED indicator and sensing on/off as `switch`es;
+- the clear time as a `number`, and sensing on/off as a `switch`;
 - the health sensors (already there), and availability from the `status` topic.
 
 The room is left unset: Home Assistant asks for one, and it can be set there later.

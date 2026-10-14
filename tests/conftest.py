@@ -36,6 +36,7 @@ sys.modules['uhashlib'] = hashlib
 # MicroPython's extra time functions.
 time.ticks_ms = lambda: int(time.monotonic() * 1000)
 time.ticks_diff = lambda a, b: a - b
+time.ticks_add = lambda a, b: a + b
 time.sleep_ms = lambda ms: time.sleep(ms / 1000)
 
 # MicroPython's extra os functions.
