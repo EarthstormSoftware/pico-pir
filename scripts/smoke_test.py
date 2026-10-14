@@ -4,9 +4,9 @@ Checks the HTTP API and web UI, and changing the sensor's settings through
 /api/config. Then, over MQTT, what the device publishes (the retained status, info
 and state topics and, with Home Assistant discovery on, the discovery configs),
 and that commands on the set topic change the settings while bad ones are
-ignored. With --wave it also waits for someone to wave at the sensor, and checks
-that the motion and the clear arrive on the state topic. The sensor's settings
-are put back at the end.
+ignored. With --wave it also asks for someone to wave at the sensor (any time
+once asked: the checks carry on meanwhile), and checks that the motion and the
+clear arrive on the state topic. The sensor's settings are put back at the end.
 
 The broker address, user and device name come from the device's /api/config.
 That omits the password, so it is read from a local config.json (gitignored),
@@ -184,6 +184,8 @@ def load_mqtt_password(cli_password):
         return None
 
 
+WAVE_WAIT_S = 120
+
 HA_ENTITIES = {'motion': 'binary_sensor', 'last_motion': 'sensor', 'clear_after_s': 'number', 'sensing': 'switch'}
 
 
@@ -210,9 +212,19 @@ def test_mqtt(dev, config, args):
         for key, component in HA_ENTITIES.items():
             watched['ha_' + key] = f'{ha_prefix}/{component}/{device_name}/{key}/config'
     seen = {}  # topic -> latest payload text
+    states = []  # every state message, in order, for --wave
+
+    def on_message(_c, _u, m):
+        text = m.payload.decode('utf-8', 'replace')
+        seen[m.topic] = text
+        if m.topic == watched['state']:
+            try:
+                states.append(json.loads(text))
+            except ValueError:
+                pass
 
     client = paho.Client(paho.CallbackAPIVersion.VERSION2, client_id=f'smoke-test-{os.getpid()}')
-    client.on_message = lambda _c, _u, m: seen.__setitem__(m.topic, m.payload.decode('utf-8', 'replace'))
+    client.on_message = on_message
     # The test's own login: a device with an account of its own (whose password
     # only the device has) is tested through another account, --mqtt-user.
     user = args.mqtt_user or mqtt.get('user')
@@ -232,6 +244,14 @@ def test_mqtt(dev, config, args):
             report('FAIL', 'mqtt', 'broker refused the connection (check user/password)')
             return
         client.subscribe([(t, 0) for t in watched.values()])
+        if args.wave:
+            motion = dev.info()['motion']
+            count = motion['count']
+            if motion['settling']:
+                print('WAIT the sensor is still settling after power-on (its first minute): a wave before then '
+                      "doesn't count", flush=True)
+            print('WAVE at the sensor any time from now, then keep out of its view until motion clears '
+                  f'(the test waits up to {WAVE_WAIT_S} s for it at the end)', flush=True)
 
         def wait_json(name, test, timeout=5.0):
             """Wait for the watched topic's latest JSON payload to pass test. Returns (ok, payload)."""
@@ -327,19 +347,25 @@ def test_mqtt(dev, config, args):
         check('mqtt.still_handling_after_bad_commands', ok)
 
         if args.wave:
-            publish({'clear_after_s': 5})  # so the clear comes soon after
-            dev.wait_for_sensor({'clear_after_s': 5})
-            ok, state = wait_json('state', lambda p: p.get('clear_after_s') == 5)
-            count = state.get('count', 0) if state else 0
-            if dev.info()['motion']['settling']:
-                print('WAIT the sensor is still settling after power-on; give it a minute', flush=True)
-            print('WAVE at the sensor now (waiting up to 60 s)', flush=True)
-            ok, state = wait_json('state', lambda p: p.get('motion') is True and p.get('count', 0) > count, 60)
-            check('mqtt.motion', ok and state.get('last') is not None, f'state={state}')
-            if ok:
-                print('STILL now: keep out of view until it clears (up to 60 s)', flush=True)
-                ok, state = wait_json('state', lambda p: p.get('motion') is False, 60)
-                check('mqtt.motion_cleared', ok, f'state={state}')
+            def detected():
+                # The first motion published since the wave was asked for (count only goes up on motion).
+                return next((i for i, p in enumerate(states) if p.get('motion') is True and p.get('count', 0) > count),
+                            None)
+
+            def cleared(start):
+                # A clear after it, with sensing on: turning sensing off clears too, but isn't the sensor.
+                return any(p.get('motion') is False and p.get('enabled') is True for p in states[start + 1:])
+
+            deadline = time.monotonic() + WAVE_WAIT_S
+            if detected() is None or not cleared(detected()):
+                print(f'WAITING for the wave and the clear (up to {WAVE_WAIT_S} s)', flush=True)
+            while time.monotonic() < deadline and (detected() is None or not cleared(detected())):
+                time.sleep(0.5)
+            first = detected()
+            check('mqtt.motion', first is not None and states[first].get('last') is not None,
+                  f'state={states[first] if first is not None else (states[-1] if states else None)}')
+            if first is not None:
+                check('mqtt.motion_cleared', cleared(first), f'state={states[-1]}')
     finally:
         client.loop_stop()
         client.disconnect()
@@ -436,7 +462,9 @@ def main():
         return 2
     report('PASS', 'resolve', f'{args.host} -> {ip}')
 
-    dev = Device(args.host, args.timeout, args.password)
+    # By the IPv4 address resolved above: a .local name left to the HTTP client can come
+    # back from Windows' mDNS as an IPv6 address it can't connect to (flowinfo out of range).
+    dev = Device(ip, args.timeout, args.password)
     try:
         dev.info()
         original = dev.sensor()

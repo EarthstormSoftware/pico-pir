@@ -67,10 +67,12 @@ the device is meant to be reachable by its name.
 py scripts/smoke_test.py --host <address> --mqtt-user <test user>
 ```
 
-Add `--wave` if it was asked for. The test then prints `WAVE at the sensor now`: tell the user to wave at it, and
-then `STILL now`: to keep out of its view until motion clears. Run it in the background and relay those prompts
-as they appear. If the sensor is still settling after power-on (the first minute), it says so; waving only counts
-once it has settled.
+Add `--wave` if it was asked for. Before starting, tell the user to wave at the sensor once they see your next
+message, then to keep out of its view until motion clears. Run the test in the background and end your turn, so
+that message reaches them. The test asks for the wave a few seconds in (`WAVE at the sensor any time from now`),
+keeps every state message from then on, and at the end waits up to 120 s for the motion and the clear, so the
+wave's timing doesn't matter. If the sensor is still settling after power-on (its first minute), it prints `WAIT`:
+a wave before then doesn't count.
 
 It prints `PASS`/`FAIL`/`SKIP` lines and a final `RESULT` line, and puts the sensor's settings back at the end
 (`RESTORED`). What it covers:
