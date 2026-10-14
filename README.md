@@ -76,7 +76,7 @@ Connect the Pico over USB and run:
 ```
 
 The script compiles everything except the small `main.py` to bytecode (`.mpy`, which saves the device compiling it
-in RAM), copies it to the device (libraries into `/lib`), checks that everything arrived, and soft-resets the
+in RAM), copies it to the device (libraries into `/lib`), checks that everything arrived, and resets the
 board. Keep `mpy-cross`'s bytecode version in line with the device firmware (MicroPython 1.29 loads `.mpy` v6.3),
 or the device can't load the `.mpy` files.
 
