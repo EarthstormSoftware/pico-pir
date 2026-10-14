@@ -114,10 +114,46 @@ def create_mqtt_client():
 
     return WLANManagedMQTTClient(device_config.get_mqtt_as_config())
 
-# Nothing is subscribed to yet, but mqtt_as delivers into its queue all the same.
+# Commands on the set topic change the sensor's settings, as the web page does.
 async def messages(client):
-    async for topic, msg, retained in client.queue:
-        Log.info(TAG, f'Ignoring message on {topic}')
+    import mqttstate
+    t = mqtt_topics()
+    async for topic, msg, retained in client.queue:  # bytes, as mqtt_as delivers them
+        topic = topic.decode()
+        if topic != t['set']:
+            Log.info(TAG, f'Ignoring message on {topic}')
+            continue
+        if retained:
+            # It would be applied again on every connection, undoing later changes.
+            Log.warn(TAG, f'Ignoring a retained command on {topic}: commands should not be retained')
+            continue
+        try:
+            msg = msg.decode()
+            updates = mqttstate.parse_set(msg)
+        except (ValueError, UnicodeError) as e:
+            Log.warn(TAG, f'Ignoring command {msg}: {e}')
+            continue
+        ok, error = device_api.save_config({'sensor': updates})
+        if ok:
+            Log.info(TAG, f'Sensor settings changed over MQTT: {updates}')
+        else:
+            Log.warn(TAG, f'Ignoring command {msg}: {error}')
+
+async def publish_state(client):
+    # The sensor's state, whenever it changes (sensor.changed); up() asks for it
+    # on each connection too.
+    import mqttstate
+    t = mqtt_topics()
+    while True:
+        await sensor.changed.wait()
+        sensor.changed.clear()
+        if not client.isconnected():
+            continue  # up() publishes it once connected again
+        try:
+            payload = mqttstate.state_payload(device_api.motion_info(), device_config.sensorconfig.clear_after_s)
+            await client.publish(t['state'], payload, retain=True)
+        except OSError as e:
+            Log.warn(TAG, f'Failed to publish state: {e}')
 
 def mqtt_topics():
     return device_config.mqttconfig.topics()
@@ -132,20 +168,26 @@ async def up(client):
         client.up.clear()
         device_api.mqtt_error = None
         Log.info(TAG, 'MQTT connected')
+        await client.subscribe(t['set'], 1)
         await client.publish(t['status'], mqttstate.ONLINE, retain=True)
         await clear_retired_topics(client, t)
         # With discovery off, an empty retained config removes any earlier one.
         if ha:
             import mqttha  # only needed for this
+        client_id = device_config.mqttconfig.client_id
         for key in mqttstate.SENSOR_KEYS:
-            discovery = mqttha.ha_sensor_discovery_payload(device_config.mqttconfig.client_id, t, key, VERSION) if ha else ''
+            discovery = mqttha.ha_sensor_discovery_payload(client_id, t, key, VERSION) if ha else ''
             await client.publish(t['ha_sensor_' + key], discovery, retain=True)
+        for key, _ in mqttstate.HA_ENTITIES:
+            discovery = mqttha.ha_entity_discovery_payload(client_id, t, key, VERSION) if ha else ''
+            await client.publish(t['ha_' + key], discovery, retain=True)
         if ha:
             import sys
             del sys.modules['mqttha']
             mqttha = None
             gc.collect()
         await send_info(client, t)
+        sensor.changed.set()  # publish_state() sends the state now that we're connected
 
 async def clear_retired_topics(client, t):
     # Empty retained messages remove what was left on topics the device no
@@ -216,6 +258,7 @@ async def clock_sync():
                                                                 device_config.dst)
         if not device_api.clock_set:
             Log.info(TAG, f'Clock set from {server}')
+            sensor.changed.set()  # the last motion's time is known now
         device_api.clock_set = True
         wait = CLOCK_SYNC_S
 
@@ -326,7 +369,7 @@ async def main(client):
             await client.connect()
             Log.info(TAG,'Creating MQTT tasks')
             device_api.mqtt_error = None
-            for coroutine in (up, down, messages, publish_info):
+            for coroutine in (up, down, messages, publish_info, publish_state):
                 asyncio.create_task(coroutine(client))
             break
         except OSError as e:

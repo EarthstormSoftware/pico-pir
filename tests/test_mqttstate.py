@@ -67,9 +67,10 @@ def test_retired_topics_are_the_retained_ones_no_longer_used():
     assert mqttstate.retired_topics(old, old) == []
     # The discovery configs stay where they were, so they aren't cleared.
     assert mqttstate.retired_topics(old, mqttstate.topics('Stairs', 'sensors/{name}')) == [
-        '/home/device/Stairs/status', '/home/device/Stairs/info']
+        '/home/device/Stairs/status', '/home/device/Stairs/info', '/home/device/Stairs/state']
     renamed = mqttstate.retired_topics(old, mqttstate.topics('Hall'))
     assert 'homeassistant/sensor/Stairs/rssi/config' in renamed
+    assert 'homeassistant/binary_sensor/Stairs/motion/config' in renamed
 
 
 def test_retired_topics_file(tmp_path, monkeypatch):
@@ -122,3 +123,116 @@ def test_unknown_sensor():
 
 def test_the_sensor_descriptions_match_the_sensor_topics():
     assert tuple(s[0] for s in mqttha.SENSORS) == mqttstate.SENSOR_KEYS
+
+
+def test_motion_topics():
+    t = mqttstate.topics('Stairs')
+    assert t['state'] == '/home/device/Stairs/state'
+    assert t['set'] == '/home/device/Stairs/set'
+    assert t['ha_motion'] == 'homeassistant/binary_sensor/Stairs/motion/config'
+    assert t['ha_last_motion'] == 'homeassistant/sensor/Stairs/last_motion/config'
+    assert t['ha_clear_after_s'] == 'homeassistant/number/Stairs/clear_after_s/config'
+    assert t['ha_sensing'] == 'homeassistant/switch/Stairs/sensing/config'
+    # Each retained topic is a topic the device has.
+    assert all(key in t for key in mqttstate.RETAINED)
+
+
+MOTION = {'enabled': True, 'settling': False, 'active': True, 'count': 3, 'last': '2026-10-14T14:04:59+02:00',
+          'recent': []}
+
+
+def test_state_payload():
+    assert json.loads(mqttstate.state_payload(MOTION, 15)) == {
+        'motion': True, 'last': '2026-10-14T14:04:59+02:00', 'count': 3, 'enabled': True, 'clear_after_s': 15}
+    assert json.loads(mqttstate.state_payload(dict(MOTION, last=None), 15))['last'] is None
+
+
+@pytest.mark.parametrize('payload, command', [
+    ('{"enabled": false}', {'enabled': False}),
+    ('{"clear_after_s": 20}', {'clear_after_s': 20}),
+    ('{"clear_after_s": 20.0}', {'clear_after_s': 20}),
+    ('{"enabled": true, "clear_after_s": 60}', {'enabled': True, 'clear_after_s': 60}),
+    ('{"clear_after_s": 2}', {'clear_after_s': 2}),  # its range is checked by the save
+])
+def test_set_commands(payload, command):
+    assert mqttstate.parse_set(payload) == command
+
+
+@pytest.mark.parametrize('payload, error', [
+    ('ON', None),
+    ('{}', 'a command must be a JSON object'),
+    ('[1]', 'a command must be a JSON object'),
+    ('{"brightness": 5}', 'there is no setting brightness'),
+    ('{"enabled": "yes"}', 'enabled must be true or false'),
+])
+def test_bad_set_commands(payload, error):
+    with pytest.raises(ValueError) as e:
+        mqttstate.parse_set(payload)
+    if error:
+        assert str(e.value).startswith(error)
+
+
+def entity(key):
+    return json.loads(mqttha.ha_entity_discovery_payload('Stairs', mqttstate.topics('Stairs'), key, '0.1.0'))
+
+
+@pytest.mark.parametrize('key', [k for k, _ in mqttstate.HA_ENTITIES])
+def test_entities_read_the_state_topic(key):
+    t = mqttstate.topics('Stairs')
+    config = entity(key)
+    assert config['state_topic'] == t['state'] and config['availability_topic'] == t['status']
+    assert config['unique_id'] == 'Stairs_' + key
+    assert config['device']['identifiers'] == ['Stairs']
+    assert 'suggested_area' not in config['device']  # Home Assistant asks for the room
+
+
+def render(template, state):
+    """Home Assistant's template, with value_json from a state payload (only the forms used here)."""
+    import re
+    value_json = json.loads(state)
+    m = re.fullmatch(r"\{\{ 'ON' if value_json\.(\w+) else 'OFF' \}\}", template)
+    if m:
+        return 'ON' if value_json[m.group(1)] else 'OFF'
+    m = re.fullmatch(r'\{\{ value_json\.(\w+) \}\}', template)
+    v = value_json[m.group(1)]
+    return 'None' if v is None else str(v)
+
+
+def test_the_motion_sensor():
+    config = entity('motion')
+    assert config['device_class'] == 'motion'
+    assert render(config['value_template'], mqttstate.state_payload(MOTION, 15)) == 'ON'
+    assert render(config['value_template'], mqttstate.state_payload(dict(MOTION, active=False), 15)) == 'OFF'
+
+
+def test_the_last_motion_sensor():
+    config = entity('last_motion')
+    assert config['device_class'] == 'timestamp'
+    assert render(config['value_template'], mqttstate.state_payload(MOTION, 15)) == '2026-10-14T14:04:59+02:00'
+    # "None" is how Home Assistant's MQTT sensor is told the value is unknown.
+    assert render(config['value_template'], mqttstate.state_payload(dict(MOTION, last=None), 15)) == 'None'
+
+
+def test_the_clear_time_number_sends_a_set_command():
+    config = entity('clear_after_s')
+    assert config['command_topic'] == mqttstate.topics('Stairs')['set']
+    assert (config['min'], config['max'], config['unit_of_measurement']) == (5, 3600, 's')
+    assert config['entity_category'] == 'config'
+    assert render(config['value_template'], mqttstate.state_payload(MOTION, 15)) == '15'
+    sent = config['command_template'].replace('{{ value | int }}', '20')
+    assert mqttstate.parse_set(sent) == {'clear_after_s': 20}
+
+
+def test_the_sensing_switch_sends_set_commands():
+    config = entity('sensing')
+    assert config['command_topic'] == mqttstate.topics('Stairs')['set']
+    assert mqttstate.parse_set(config['payload_on']) == {'enabled': True}
+    assert mqttstate.parse_set(config['payload_off']) == {'enabled': False}
+    assert render(config['value_template'], mqttstate.state_payload(MOTION, 15)) == config['state_on']
+    off = mqttstate.state_payload(dict(MOTION, enabled=False), 15)
+    assert render(config['value_template'], off) == config['state_off']
+
+
+def test_unknown_entity():
+    with pytest.raises(ValueError):
+        entity('nope')

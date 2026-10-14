@@ -146,12 +146,18 @@ With MQTT enabled (MQTT tab, or `mqtt` in `config.json`), the device uses these 
 |---|---|---|
 | `<base>/status` | from the device, retained | `online` while connected. The broker sets `offline` (the MQTT will) if the device drops off |
 | `<base>/info` | from the device, retained | `{"version": "0.1.0", "uptime_s": 3600, "rssi": -58, "ip": "192.168.1.20", "mem_free": 86208}`: the device's health, as in `/api/info`, on connecting and every minute |
+| `<base>/state` | from the device, retained | `{"motion": true, "last": "2026-10-14T14:04:59+02:00", "count": 3, "enabled": true, "clear_after_s": 15}`: on connecting and whenever any of it changes. `last` is null until the clock is set |
+| `<base>/set` | to the device | `{"enabled": false}` turns sensing off (`true` on again), `{"clear_after_s": 30}` sets the clear time (5-3600 s); either or both. Saved, as from the web page. Don't retain these: a retained command is ignored |
 
 With **Home Assistant discovery** turned on (`mqtt.ha_discovery`), the device publishes retained discovery configs
-under `homeassistant/sensor/<name>/` (the `homeassistant` prefix is `mqtt.ha_prefix`), so it appears in Home
-Assistant as a device with diagnostic sensors: Wi-Fi signal, uptime, free memory and IP address. Turning discovery
-off removes them on the next connection. Motion itself comes to MQTT and Home Assistant in step 4 of the
-roadmap.
+under the `homeassistant` prefix (`mqtt.ha_prefix`), so it appears in Home Assistant as one device with:
+
+- **Motion**, a motion sensor, and **Last motion**, a timestamp;
+- **Clear after** (a number, in seconds) and **Sensing** (a switch) as its settings;
+- diagnostic sensors: Wi-Fi signal, uptime, free memory and IP address.
+
+All of them show as unavailable while the device is offline. The device has no room (area) set: give it
+one in Home Assistant. Turning discovery off removes them on the next connection.
 
 Changing the topic base, the discovery prefix or the device name restarts the device. On its next connection it
 clears the retained messages it left on the old topics, so nothing stale is left on the broker or in Home

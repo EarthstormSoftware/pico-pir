@@ -72,9 +72,14 @@ def is_valid_pin(value):
     return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 28
 
 
+CLEAR_AFTER_MIN_S = 5
+CLEAR_AFTER_MAX_S = 3600
+
+
 def is_valid_clear_after(value):
     """True for a sensor.clear_after_s: whole seconds, 5 s to an hour."""
-    return isinstance(value, int) and not isinstance(value, bool) and 5 <= value <= 3600
+    return (isinstance(value, int) and not isinstance(value, bool) and
+            CLEAR_AFTER_MIN_S <= value <= CLEAR_AFTER_MAX_S)
 
 
 # Written by wlan.py to ask for setup mode on the next boot; removed when read.

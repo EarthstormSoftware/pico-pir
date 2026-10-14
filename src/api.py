@@ -117,13 +117,14 @@ class DeviceAPI:
                 'connected': bool(client and client.isconnected()),
                 'error': self.mqtt_error,
             },
-            'motion': self._motion_info(),
+            'motion': self.motion_info(),
             'watchdog_stall': self.watchdog_stall,
             'mem_free': gc.mem_free(),
             'mem_alloc': gc.mem_alloc(),
         }
 
-    def _motion_info(self):
+    def motion_info(self):
+        """The sensor's state, as /api/info has it (None without a sensor)."""
         if self.sensor is None:
             return None
         # Times only once the clock is set: before that it says 2021.

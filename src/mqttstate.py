@@ -8,7 +8,10 @@ device name) and Home Assistant discovery prefix (mqtt.ha_prefix):
 
   <base>/status       retained: "online", or "offline" (the will)
   <base>/info         retained: {"version", "uptime_s", "rssi", "ip", "mem_free"}, every minute
+  <base>/state        retained: {"motion", "last", "count", "enabled", "clear_after_s"}, on every change
+  <base>/set          commands: {"enabled": true/false} and/or {"clear_after_s": 5-3600}
   <ha_prefix>/sensor/<name>/<key>/config   retained discovery config for the info sensors (if enabled)
+  <ha_prefix>/<component>/<name>/<key>/config   the same for the motion entities (HA_ENTITIES)
 """
 import ujson
 
@@ -24,8 +27,16 @@ INFO_INTERVAL_S = 60
 # The info figures Home Assistant shows as sensors (mqttha.py describes them).
 SENSOR_KEYS = ('rssi', 'uptime_s', 'mem_free', 'ip')
 
+# The motion entities Home Assistant shows, and their kind (mqttha.py describes them).
+HA_ENTITIES = (('motion', 'binary_sensor'), ('last_motion', 'sensor'), ('clear_after_s', 'number'),
+               ('sensing', 'switch'))
+
 # The topics the device publishes retained, so ones it stops using need clearing.
-RETAINED = ('status', 'info') + tuple('ha_sensor_' + k for k in SENSOR_KEYS)
+RETAINED = (('status', 'info', 'state') + tuple('ha_sensor_' + k for k in SENSOR_KEYS) +
+            tuple('ha_' + k for k, _ in HA_ENTITIES))
+
+# What the set topic can change: the sensor settings of the same names.
+SETTABLE = ('enabled', 'clear_after_s')
 
 
 def _prefix_error(value, setting, placeholder):
@@ -65,9 +76,13 @@ def topics(client_id, base=DEFAULT_TOPIC_BASE, ha_prefix=DEFAULT_HA_PREFIX):
     t = {
         'status': base + '/status',
         'info': base + '/info',
+        'state': base + '/state',
+        'set': base + '/set',
     }
     for key in SENSOR_KEYS:
         t['ha_sensor_' + key] = ha_prefix + '/sensor/' + client_id + '/' + key + '/config'
+    for key, component in HA_ENTITIES:
+        t['ha_' + key] = ha_prefix + '/' + component + '/' + client_id + '/' + key + '/config'
     return t
 
 
@@ -81,3 +96,26 @@ def info_payload(info):
     """info: DeviceAPI.get_device_info(). The health figures, as /api/info has them."""
     return ujson.dumps({'version': info['version'], 'uptime_s': info['uptime_s'], 'rssi': info['wifi']['rssi'],
                         'ip': info['wifi']['ip'], 'mem_free': info['mem_free']})
+
+
+def state_payload(motion, clear_after_s):
+    """motion: DeviceAPI.motion_info(). What the sensor sees, and its settings."""
+    return ujson.dumps({'motion': motion['active'], 'last': motion['last'], 'count': motion['count'],
+                        'enabled': motion['enabled'], 'clear_after_s': clear_after_s})
+
+
+def parse_set(payload):
+    """A command from the set topic (JSON text), as sensor settings for
+    DeviceAPI.save_config, which checks their values. Raises ValueError."""
+    command = ujson.loads(payload)
+    if not isinstance(command, dict) or not command:
+        raise ValueError('a command must be a JSON object, such as {"enabled": false}')
+    for key in command:
+        if key not in SETTABLE:
+            raise ValueError('there is no setting ' + str(key))
+    if 'enabled' in command and not isinstance(command['enabled'], bool):
+        raise ValueError('enabled must be true or false')
+    v = command.get('clear_after_s')
+    if isinstance(v, float) and v == int(v):  # 20.0, from a slider
+        command['clear_after_s'] = int(v)
+    return command

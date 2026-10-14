@@ -25,7 +25,7 @@ Home Assistant discovery of the health sensors, the clock from NTP, the watchdog
 The Status tab shows motion now, the last motion and recent events, as well as the device's health. The sensor's
 settings go on the Device tab.
 
-## 4. Home Assistant
+## 4. Home Assistant (done)
 
 One device, with:
 - a motion `binary_sensor` (`device_class: motion`);

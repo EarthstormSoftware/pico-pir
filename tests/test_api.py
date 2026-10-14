@@ -129,7 +129,7 @@ def test_changing_topics_retires_the_old_retained_ones(api):
     api.save_config({'mqtt': {'user': 'me'}})
     assert DeviceConfig.retired_topics() == []
     api.save_config({'mqtt': {'topic_base': 'sensors/{name}'}})
-    assert DeviceConfig.retired_topics() == [running['status'], running['info']]
+    assert DeviceConfig.retired_topics() == [running['status'], running['info'], running['state']]
 
 
 def test_a_rename_retires_the_old_retained_topics(api):

@@ -3,6 +3,7 @@ Only needed while connecting, so app.py imports it then and lets it go again.
 """
 import ujson
 from product import MANUFACTURER, MODEL
+from deviceconfig import CLEAR_AFTER_MIN_S, CLEAR_AFTER_MAX_S
 
 # Home Assistant diagnostic sensors, read from the info topic: (key, name, extra config).
 SENSORS = (
@@ -40,3 +41,34 @@ def ha_sensor_discovery_payload(client_id, t, key, sw_version=None):
             config.update(extra)
             return ujson.dumps(config)
     raise ValueError('unknown sensor')
+
+
+def ha_entity_discovery_payload(client_id, t, key, sw_version=None):
+    """Discovery config for one of mqttstate.HA_ENTITIES, read from the state
+    topic; the settings are changed through the set topic. No room is given:
+    Home Assistant asks for one."""
+    config = {
+        'unique_id': client_id + '_' + key,
+        'state_topic': t['state'],
+        'availability_topic': t['status'],
+        'device': device(client_id, sw_version),
+    }
+    if key == 'motion':
+        config.update({'name': 'Motion', 'device_class': 'motion',
+                       'value_template': "{{ 'ON' if value_json.motion else 'OFF' }}"})
+    elif key == 'last_motion':
+        # null until the clock is set, which Home Assistant shows as unknown.
+        config.update({'name': 'Last motion', 'device_class': 'timestamp', 'value_template': '{{ value_json.last }}'})
+    elif key == 'clear_after_s':
+        config.update({'name': 'Clear after', 'device_class': 'duration', 'unit_of_measurement': 's',
+                       'min': CLEAR_AFTER_MIN_S, 'max': CLEAR_AFTER_MAX_S, 'step': 1, 'mode': 'box',
+                       'entity_category': 'config', 'value_template': '{{ value_json.clear_after_s }}',
+                       'command_topic': t['set'], 'command_template': '{"clear_after_s": {{ value | int }}}'})
+    elif key == 'sensing':
+        config.update({'name': 'Sensing', 'icon': 'mdi:motion-sensor', 'entity_category': 'config',
+                       'value_template': "{{ 'ON' if value_json.enabled else 'OFF' }}",
+                       'state_on': 'ON', 'state_off': 'OFF', 'command_topic': t['set'],
+                       'payload_on': '{"enabled": true}', 'payload_off': '{"enabled": false}'})
+    else:
+        raise ValueError('unknown entity')
+    return ujson.dumps(config)

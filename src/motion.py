@@ -70,6 +70,9 @@ class MotionSensor:
         self.tracker = MotionTracker(time.ticks_ms())
         # The latest detections, newest first: [start, end] as time.time(), end None while it lasts.
         self.recent = []
+        # Set when there's something new to publish: motion, clear, or a setting changed.
+        self.changed = asyncio.Event()
+        self._settings = None
         self._level = 0
         self._level_since = time.ticks_ms()
         Log.info(TAG, f'PIR sensor on GP{device_config.pir_pin}; ignoring it for {SETTLE_S} s while it settles')
@@ -96,6 +99,10 @@ class MotionSensor:
             Log.debug(TAG, f'Output {"high" if level else "low"} (was {"high" if self._level else "low"} for '
                            f'{time.ticks_diff(now_ms, self._level_since) / 1000:.1f} s)')
             self._level, self._level_since = level, now_ms
+        settings = (cfg.enabled, cfg.clear_after_s)
+        if settings != self._settings:  # saved from the web page, the API or MQTT
+            self._settings = settings
+            self.changed.set()
         event = self.tracker.update(level, now_ms, cfg.enabled, cfg.clear_after_s)
         if was_settling and not self.tracker.settling:
             Log.info(TAG, 'PIR sensor settled')
@@ -106,6 +113,8 @@ class MotionSensor:
         elif event == CLEAR:
             self.recent[0][1] = now_s
             Log.info(TAG, 'Motion cleared')
+        if event:
+            self.changed.set()
 
     async def controller(self):
         while True:

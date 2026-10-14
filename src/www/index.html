@@ -607,7 +607,7 @@ function showTopics() {
   var base = el('topic_base').value.trim().split('{name}').join(deviceName), p = el('topic_preview');
   p.textContent = '';
   if (!base) return;
-  [['Online status', '/status'], ['Health', '/info']].forEach(function (x) {
+  [['Motion', '/state'], ['Commands', '/set'], ['Online status', '/status'], ['Health', '/info']].forEach(function (x) {
     var d = document.createElement('div'), c = document.createElement('code');
     d.textContent = x[0] + ': ';
     c.textContent = base + x[1];
