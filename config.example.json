@@ -1,0 +1,31 @@
+{
+    "device": {
+        "device_name": "",
+        "log_level": 1,
+        "watchdog": true,
+        "ntp_server": "pool.ntp.org",
+        "utc_offset_min": 0,
+        "dst": "none"
+    },
+    "wlan": {
+        "ssid": "",
+        "password": "",
+        "connect_timeout": 10,
+        "reconnect_wait": 30,
+        "max_retries": 0
+    },
+    "mqtt": {
+        "enabled": false,
+        "broker_address": "",
+        "user": "",
+        "password": "",
+        "clean": true,
+        "queue_len": 1,
+        "ha_discovery": false,
+        "topic_base": "/home/device/{name}",
+        "ha_prefix": "homeassistant"
+    },
+    "web": {
+        "password": ""
+    }
+}

@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pico PIR</title>
+<!-- A motion sensor's dome with the waves it sees. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M9 22a7 7 0 0 1 14 0z' fill='%23f1f3f9' stroke='%23333' stroke-width='1.5'/%3E%3Crect x='6' y='22' width='20' height='4' rx='1' fill='%238c92a0'/%3E%3Cpath d='M5 13a13 13 0 0 1 22 0M9 9.5a8 8 0 0 1 14 0' fill='none' stroke='%234a56c9' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+/* Colours: text is at least 4.5:1 on its background, borders and the switch track 3:1. */
+:root{color-scheme:light dark;
+  --page:#667eea;--card:#fff;--text:#333;--text2:#4a4f5c;--muted:#6b7080;
+  --line:#e6e7ec;--border:#8c92a0;--field:#fff;--accent:#4a56c9;--on-accent:#fff;
+  --on:#2e7d32;--off:#8c92a0;--chip:#f1f3f9;--ok-bg:#e7f5e8;--ok:#1e6b23;--bad-bg:#fdecea;--bad:#a12622}
+@media (prefers-color-scheme:dark){:root{
+  --page:#14151d;--card:#22242f;--text:#e8e9ef;--text2:#c4c7d2;--muted:#9aa0b0;
+  --line:#33364a;--border:#6b7080;--field:#2b2e3b;--accent:#9aa8ff;--on-accent:#14151d;
+  --off:#6b7080;--chip:#2f3240;--ok-bg:#1f3a24;--ok:#8fd694;--bad-bg:#452523;--bad:#ff9e98}}
+*{margin:0;padding:0;box-sizing:border-box}
+[hidden]{display:none!important}
+body{font-family:system-ui,sans-serif;background:var(--page);color:var(--text);min-height:100vh;padding:16px;display:flex;justify-content:center;align-items:flex-start}
+.card{background:var(--card);border-radius:12px;width:100%;max-width:760px;overflow:hidden}
+header{padding:20px 20px 0;text-align:center}
+h1{font-size:21px;color:var(--text);margin-bottom:6px}
+.badge{display:inline-block;padding:3px 12px;border-radius:10px;font-size:12px;font-weight:700;margin-bottom:2px;background:var(--chip);color:var(--text2)}
+.badge.on{background:var(--on);color:#fff}
+/* Health chips and problem banner */
+.health{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin:10px 0 2px}
+.chip{font-size:12px;padding:3px 9px;border-radius:10px;background:var(--chip);color:var(--text2)}
+.chip.ok{background:var(--ok-bg);color:var(--ok)}
+.chip.bad{background:var(--bad-bg);color:var(--bad)}
+.alert{margin:12px 20px 0;padding:10px 12px;border-radius:8px;background:var(--bad-bg);color:var(--bad);font-size:13px;text-align:left}
+/* CSS-only tabs - radio inputs drive panel visibility. The radios are hidden
+   visually but stay focusable, so arrow keys and screen readers can switch tabs. */
+input[name=t]{position:absolute;opacity:0;width:1px;height:1px;margin:0;pointer-events:none}
+nav{display:flex;border-bottom:2px solid var(--line)}
+nav label{flex:1;padding:11px 4px;text-align:center;cursor:pointer;font-size:13px;font-weight:600;color:var(--muted);border-bottom:3px solid transparent;transition:.15s}
+nav label:hover{color:var(--text)}
+.pane{display:none;padding:20px}
+#tst:checked~nav label[for=tst],
+#td:checked~nav label[for=td],
+#tn:checked~nav label[for=tn],
+#tm:checked~nav label[for=tm]{color:var(--accent);border-bottom-color:var(--accent)}
+#tst:checked~#pst,#td:checked~#pd,#tn:checked~#pn,#tm:checked~#pm{display:block}
+#tst:focus-visible~nav label[for=tst],
+#td:focus-visible~nav label[for=td],
+#tn:focus-visible~nav label[for=tn],
+#tm:focus-visible~nav label[for=tm]{outline:2px solid var(--accent);outline-offset:-4px;border-radius:6px}
+/* Status: label and value pairs */
+.facts{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;font-size:13px;margin-bottom:8px}
+.facts dt{color:var(--muted)}
+.facts dd{color:var(--text);overflow-wrap:anywhere}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.msg{font-size:12px;color:var(--bad);min-height:16px;margin-top:4px}
+.msg.good{color:var(--ok)}
+.note{font-size:12px;color:var(--muted);margin-bottom:8px}
+/* Sections */
+.sec{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:16px 0 8px}
+.sec:first-child{margin-top:0}
+/* Settings sections flow into two columns when there's room, one on a phone */
+.cols{columns:2 300px;column-gap:32px}
+.group{break-inside:avoid;padding-bottom:4px}
+/* Generic inputs: fields sit side by side when they fit, stacked when not */
+.frow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:8px}
+.check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);margin-bottom:10px;cursor:pointer}
+.check input{width:18px;height:18px;margin:0;accent-color:var(--accent);flex:none}
+details{margin:4px 0 8px}
+summary{font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;padding:4px 0;margin-bottom:6px}
+summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+/* With MQTT off there's nothing else to set */
+form:has(#mqtt_enabled:not(:checked)) .mqtt-more{display:none}
+form:has(#mqtt_enabled:checked) .mqtt-off{display:none}
+.noscript{margin:12px 20px 0;padding:10px 12px;border-radius:8px;background:var(--bad-bg);color:var(--bad);font-size:13px}
+.field{flex:1;display:flex;flex-direction:column;gap:3px}
+.field label{font-size:12px;color:var(--text2);font-weight:500}
+input[type=text],input[type=number],input[type=password],input[type=url],select{width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;background:var(--field);color:var(--text)}
+input:disabled{opacity:.7}
+[aria-invalid=true]{border-color:var(--bad)!important}
+input[type=text]:focus,input[type=number]:focus,input[type=password]:focus,input[type=url]:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+/* Buttons */
+.btn-full:disabled{opacity:.5;cursor:default}
+.btn-full.danger{background:var(--bad-bg);color:var(--bad);border:1.5px solid var(--bad)}
+.btn-full{display:block;width:100%;margin-top:10px;padding:11px;border:none;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;background:var(--accent);color:var(--on-accent)}
+.topics div{overflow-wrap:anywhere;margin-bottom:2px}
+.topics code{font-size:12px;color:var(--text2)}
+footer{font-size:11px;color:var(--muted);text-align:center;padding:10px 0 14px}
+</style>
+</head>
+<body>
+<div class="card">
+<header>
+  <h1 id="name">Pico PIR</h1>
+  <span class="badge" id="state">Loading&hellip;</span>
+  <div class="health" id="health"></div>
+</header>
+<div class="alert" id="alert" role="alert" hidden></div>
+<noscript><p class="noscript">This page needs JavaScript. Turn it on for this site, then reload.</p></noscript>
+
+<input type="radio" name="t" id="tst" aria-label="Status tab" checked>
+<input type="radio" name="t" id="td" aria-label="Device tab">
+<input type="radio" name="t" id="tn" aria-label="Network tab">
+<input type="radio" name="t" id="tm" aria-label="MQTT tab">
+<nav>
+  <label for="tst">Status</label>
+  <label for="td">Device</label>
+  <label for="tn">Network</label>
+  <label for="tm">MQTT</label>
+</nav>
+
+<!-- STATUS PANEL -->
+<div class="pane" id="pst">
+  <div class="sec">Device</div>
+  <dl class="facts">
+    <dt>Firmware</dt><dd id="s_version">&mdash;</dd>
+    <dt>Up for</dt><dd id="s_uptime">&mdash;</dd>
+    <dt>Time</dt><dd id="s_time">&mdash;</dd>
+    <dt>Free memory</dt><dd id="s_mem">&mdash;</dd>
+  </dl>
+  <div class="sec">Connections</div>
+  <dl class="facts">
+    <dt>Wi-Fi</dt><dd id="s_wifi">&mdash;</dd>
+    <dt>IP address</dt><dd id="s_ip">&mdash;</dd>
+    <dt>MQTT</dt><dd id="s_mqtt">&mdash;</dd>
+  </dl>
+  <p class="note" id="s_watchdog" hidden></p>
+</div>
+
+<!-- DEVICE PANEL -->
+<div class="pane" id="pd">
+  <form class="settings">
+    <div class="cols">
+    <div class="group">
+      <div class="sec">Identity</div>
+      <div class="frow">
+        <div class="field"><label for="device_name">Device Name</label>
+          <input type="text" name="device.device_name" id="device_name" maxlength="32" aria-describedby="name_help">
+        </div>
+      </div>
+      <p class="note" id="name_help">Also its network name (<span id="name_host">name</span>.local) and MQTT client id. Home Assistant names its sensors after it.</p>
+    </div>
+    <div class="group">
+      <div class="sec">Clock</div>
+      <div class="frow">
+        <div class="field"><label for="utc_offset_min">Time Zone</label>
+          <!-- Filled in by the script: UTC-12:00 to UTC+14:00 -->
+          <select name="device.utc_offset_min" id="utc_offset_min" data-t="int"></select>
+        </div>
+        <div class="field"><label for="dst">Summer Time</label>
+          <select name="device.dst" id="dst">
+            <option value="none">None</option>
+            <option value="eu">Europe</option>
+            <option value="us">North America</option>
+          </select>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="field"><label for="ntp_server">Time Server (NTP)</label>
+          <input type="text" name="device.ntp_server" id="ntp_server" maxlength="64" placeholder="none: don't set the clock" aria-describedby="ntp_help" spellcheck="false" autocapitalize="off">
+        </div>
+      </div>
+      <p class="note" id="ntp_help">The time zone is the standard (winter) offset; summer time adds an hour. Europe: last Sunday of March to last Sunday of October. North America: second Sunday of March to first Sunday of November.</p>
+    </div>
+    <div class="group">
+      <div class="sec">Diagnostics</div>
+      <div class="frow">
+        <div class="field"><label for="log_level">Log Level (USB serial log)</label>
+          <select name="device.log_level" id="log_level" data-t="int">
+            <option value="0">Warnings and errors</option>
+            <option value="1">Info</option>
+            <option value="2">Debug</option>
+          </select>
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" name="device.watchdog" id="watchdog"> Restart automatically if the firmware stops responding</label>
+    </div>
+    </div>
+    <button type="submit" class="btn-full save" disabled>Save</button>
+    <p class="msg" role="status" aria-live="polite"></p>
+  </form>
+
+  <div class="sec">Reset</div>
+  <p class="note">Reset settings keeps the Wi-Fi network; factory reset forgets it, and the device starts its PicoPIR-SETUP hotspot: join it, then open http://192.168.4.1 to set it up again.</p>
+  <button type="button" class="btn-full danger reset-btn" data-confirm="Reset all settings to their defaults? The device keeps its Wi-Fi network and restarts.">Reset settings</button>
+  <button type="button" class="btn-full danger reset-btn" data-confirm="Factory reset? This also forgets the Wi-Fi network: you'll need to join the PicoPIR-SETUP hotspot and open http://192.168.4.1 to set the device up again." data-wifi="true">Factory reset</button>
+  <p class="msg" id="reset_msg" role="status" aria-live="polite"></p>
+</div>
+
+<!-- NETWORK PANEL -->
+<div class="pane" id="pn">
+  <form class="settings">
+    <div class="cols">
+    <div class="group">
+      <div class="sec">Wi-Fi</div>
+      <div class="frow">
+        <div class="field"><label for="ssid">Network (SSID)</label>
+          <input type="text" id="ssid" aria-describedby="wifi_help" disabled>
+        </div>
+      </div>
+      <p class="note" id="wifi_help">To change the Wi-Fi network or its password, hold the board's BOOTSEL button for 5 seconds: the device restarts into its PicoPIR-SETUP hotspot. Join it, then open http://192.168.4.1.</p>
+      <details>
+        <summary>Connection timing</summary>
+        <div class="frow">
+          <div class="field"><label for="connect_timeout">Connect Timeout (s)</label>
+            <input type="number" required name="wlan.connect_timeout" id="connect_timeout" min="5">
+          </div>
+          <div class="field"><label for="reconnect_wait">Reconnect Wait (s)</label>
+            <input type="number" required name="wlan.reconnect_wait" id="reconnect_wait" min="5">
+          </div>
+        </div>
+        <div class="frow">
+          <div class="field"><label for="max_retries">Max Retries (0 = unlimited)</label>
+            <input type="number" required name="wlan.max_retries" id="max_retries" min="0">
+          </div>
+        </div>
+      </details>
+    </div>
+    <div class="group">
+      <div class="sec">Web Access</div>
+      <div class="frow">
+        <div class="field"><label for="web_password">Password (<span id="web_password_state">none set</span>)</label>
+          <input type="password" name="web.password" id="web_password" aria-describedby="web_password_help" minlength="4" placeholder="leave blank to keep" autocomplete="new-password">
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" name="web.clear_password" id="web_password_clear"> Remove the password</label>
+      <p class="note" id="web_password_help">With a password set, the browser asks for it (any username). Forgotten it? Hold BOOTSEL for 5 seconds and complete setup, which removes it.</p>
+    </div>
+    </div>
+    <button type="submit" class="btn-full save" disabled>Save</button>
+    <p class="msg" role="status" aria-live="polite"></p>
+  </form>
+</div>
+
+<!-- MQTT PANEL -->
+<div class="pane" id="pm">
+  <form class="settings">
+    <label class="check"><input type="checkbox" name="mqtt.enabled" id="mqtt_enabled"> Connect to an MQTT broker</label>
+    <p class="note mqtt-off">MQTT lets home automation software such as Home Assistant or Node-RED see the sensor.</p>
+    <div class="cols mqtt-more">
+    <div class="group">
+      <div class="sec">Broker</div>
+      <div class="frow">
+        <div class="field"><label for="broker_address">Address</label>
+          <input type="text" name="mqtt.broker_address" id="broker_address">
+        </div>
+      </div>
+      <div class="frow">
+        <div class="field"><label for="mqtt_user">Username</label>
+          <input type="text" name="mqtt.user" id="mqtt_user">
+        </div>
+        <div class="field"><label for="mqtt_password">Password</label>
+          <input type="password" name="mqtt.password" id="mqtt_password" placeholder="leave blank to keep">
+        </div>
+      </div>
+      <details>
+        <summary>Session options</summary>
+        <div class="frow">
+          <div class="field"><label for="queue_len">Queue Length</label>
+            <input type="number" required name="mqtt.queue_len" id="queue_len" min="1">
+          </div>
+        </div>
+        <label class="check"><input type="checkbox" name="mqtt.clean" id="clean"> Clean session</label>
+      </details>
+    </div>
+    <div class="group">
+      <div class="sec">Topics</div>
+      <div class="frow">
+        <div class="field"><label for="topic_base">Topic Base</label>
+          <input type="text" required name="mqtt.topic_base" id="topic_base" maxlength="100" placeholder="/home/device/{name}" aria-describedby="topic_help topic_preview" spellcheck="false" autocapitalize="off">
+        </div>
+      </div>
+      <p class="note" id="topic_help">{name} becomes the device name. Topics no longer used are cleared from the broker after the restart.</p>
+      <div class="note topics" id="topic_preview"></div>
+    </div>
+    <div class="group">
+      <div class="sec">Home Assistant</div>
+      <label class="check"><input type="checkbox" name="mqtt.ha_discovery" id="ha_discovery"> Announce the sensor to Home Assistant</label>
+      <div class="frow">
+        <div class="field"><label for="ha_prefix">Discovery Prefix</label>
+          <input type="text" required name="mqtt.ha_prefix" id="ha_prefix" maxlength="100" placeholder="homeassistant" aria-describedby="ha_help" spellcheck="false" autocapitalize="off">
+        </div>
+      </div>
+      <p class="note" id="ha_help">Home Assistant adds the device automatically (MQTT discovery). Turning this off removes it again. Only change the prefix if Home Assistant's has been changed.</p>
+    </div>
+    </div>
+    <button type="submit" class="btn-full save" disabled>Save</button>
+    <p class="msg" role="status" aria-live="polite"></p>
+  </form>
+</div>
+
+<footer><span id="footer_name"></span> &bull; Pico PIR <span id="footer_info"></span></footer>
+</div>
+<script>
+// Values are set with .value / .textContent, never as HTML, so names and URLs
+// can't inject markup. Save stays disabled until the settings have loaded, so
+// a form can't post empty fields over the real config.
+function el(id) { return document.getElementById(id); }
+var info = null;
+var restarting = false;  // after a save that restarts the device
+
+function post(path, body) {
+  return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })
+    .then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+        return j;
+      });
+    });
+}
+
+function duration(s) {
+  var d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? d + 'd ' + h + 'h' : h ? h + 'h ' + m + 'm' : m + 'm';
+}
+
+function chip(text, cls) {
+  var c = document.createElement('span');
+  c.className = 'chip' + (cls ? ' ' + cls : '');
+  c.textContent = text;
+  return c;
+}
+
+function signal(r) {
+  return r > -60 ? 'strong' : r > -70 ? 'good' : r > -80 ? 'weak' : 'very weak';
+}
+
+function render(i) {
+  info = i;
+  document.title = i.name;
+  el('name').textContent = i.name;
+  el('footer_name').textContent = i.name;
+  el('footer_info').textContent = '• v' + i.version + (i.time ? ' • ' + i.time.slice(11, 16) : '') +
+    ' • up ' + duration(i.uptime_s) +
+    ' • ' + Math.round(i.mem_free / 1024) + ' KB free';
+  var st = el('state');
+  st.textContent = 'Online';
+  st.className = 'badge on';
+
+  el('s_version').textContent = i.version;
+  el('s_uptime').textContent = duration(i.uptime_s);
+  el('s_time').textContent = i.time ? i.time.replace('T', ' ') : 'Not set yet (it comes from the time server once Wi-Fi is up)';
+  el('s_mem').textContent = Math.round(i.mem_free / 1024) + ' KB of ' + Math.round((i.mem_free + i.mem_alloc) / 1024) + ' KB';
+  var r = i.wifi.rssi;
+  el('s_wifi').textContent = i.wifi.ssid + (r === null ? '' : ', ' + signal(r) + ' (' + r + ' dBm)');
+  el('s_ip').textContent = i.wifi.ip;
+  el('s_mqtt').textContent = !i.mqtt.enabled ? 'Off' : i.mqtt.connected ? 'Connected' :
+    'Not connected' + (i.mqtt.error ? ': ' + i.mqtt.error : '');
+  el('s_watchdog').hidden = i.watchdog_stall === null;
+  el('s_watchdog').textContent = 'The watchdog restarted the device last time: the firmware had stopped responding for ' +
+    i.watchdog_stall + ' s.';
+
+  var health = el('health'), problems = [];
+  health.textContent = '';
+  if (r === null) {
+    health.appendChild(chip('Wi-Fi'));
+  } else {
+    health.appendChild(chip('Wi-Fi ' + signal(r) + ' (' + r + ' dBm)', r > -80 ? 'ok' : 'bad'));
+  }
+  if (!i.mqtt.enabled) {
+    health.appendChild(chip('MQTT off'));
+  } else if (i.mqtt.connected) {
+    health.appendChild(chip('MQTT connected', 'ok'));
+  } else {
+    health.appendChild(chip('MQTT not connected', 'bad'));
+    problems.push('MQTT is not connected' + (i.mqtt.error ? ': ' + i.mqtt.error : '.'));
+  }
+  showAlert(problems.join(' '));
+}
+
+function showAlert(text) {
+  el('alert').textContent = text;
+  el('alert').hidden = !text;
+}
+
+function refresh() {
+  if (restarting) return;
+  return fetch('/api/info')
+    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(render)
+    .catch(function () {
+      el('state').textContent = 'Offline';
+      el('state').className = 'badge';
+      showAlert("Can't reach the device. It may be restarting; this page keeps trying.");
+    });
+}
+
+setInterval(function () { if (!document.hidden) refresh(); }, 3000);
+document.addEventListener('visibilitychange', function () { if (!document.hidden) refresh(); });
+
+// Settings forms. Each field is named by its place in /api/config (for example
+// mqtt.topic_base), so loading and saving work the same way for every field.
+// Settings in LIVE apply at once; changing any other one restarts the device,
+// and the Save button says so before it's pressed.
+var LIVE = ['device.log_level', 'device.utc_offset_min', 'device.dst', 'web.password', 'web.clear_password'];
+var settingsForms = document.querySelectorAll('form.settings');
+
+function fields(f) {
+  return Array.prototype.filter.call(f.elements, function (e) { return e.name && e.type !== 'submit'; });
+}
+// The field's value as the API has it: data-t marks drop-downs of true/false or numbers.
+function typed(e) {
+  if (e.type === 'checkbox') return e.checked;
+  if (e.type === 'number' || e.dataset.t === 'int') return e.value === '' ? null : Number(e.value);
+  if (e.dataset.t === 'bool') return e.value === 'true';
+  return e.value;
+}
+function collect(f) {
+  var body = {};
+  fields(f).forEach(function (e) {
+    if (e.type === 'password' && !e.value) return;  // blank keeps the saved password
+    var path = e.name.split('.'), o = body;
+    for (var i = 0; i < path.length - 1; i++) o = o[path[i]] = o[path[i]] || {};
+    o[path[path.length - 1]] = typed(e);
+  });
+  return body;
+}
+function fill(cfg) {
+  settingsForms.forEach(function (f) {
+    fields(f).forEach(function (e) {
+      var v = e.name.split('.').reduce(function (o, k) { return o && o[k]; }, cfg);
+      if (e.type === 'checkbox') e.checked = !!v;
+      else if (v !== undefined && v !== null) e.value = String(v);
+    });
+  });
+}
+// A tick box's value never changes, so compare whether it's ticked.
+function val(e) { return e.type === 'checkbox' ? String(e.checked) : e.value; }
+function remember(f) {
+  fields(f).forEach(function (e) { e.dataset.saved = val(e); });
+  showSave(f);
+}
+function needsRestart(f) {
+  return fields(f).some(function (e) { return LIVE.indexOf(e.name) < 0 && val(e) !== e.dataset.saved; });
+}
+function showSave(f) {
+  f.querySelector('.save').textContent = needsRestart(f) ? 'Save & Restart' : 'Save';
+}
+
+// Wait until the device answers again with a fresh uptime, then reload.
+function waitForRestart(msg) {
+  var start = Date.now();
+  restarting = true;
+  function poll() {
+    var waited = (Date.now() - start) / 1000;
+    if (waited > 60) msg.textContent = 'Still restarting. This is taking longer than usual; reload the page in a moment.';
+    fetch('/api/info', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function (i) {
+        if (i.uptime_s <= (Date.now() - start) / 1000 + 1) location.reload();
+        else setTimeout(poll, 1500);
+      })
+      .catch(function () { setTimeout(poll, 1500); });
+  }
+  setTimeout(poll, 2000);
+}
+
+settingsForms.forEach(function (f) {
+  f.addEventListener('input', function () { showSave(f); });
+  f.addEventListener('change', function () { showSave(f); });
+  f.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var msg = f.querySelector('.msg'), btn = f.querySelector('.save');
+    fields(f).forEach(function (x) { x.removeAttribute('aria-invalid'); });
+    msg.className = 'msg good';
+    msg.textContent = 'Saving…';
+    btn.disabled = true;
+    post('/api/config', collect(f))
+      .then(function (j) {
+        if (j.restart_required) {
+          msg.textContent = 'Saved. Restarting the device…';
+          // The device may restart before it answers, so carry on either way.
+          return post('/api/restart').catch(function () {}).then(function () { waitForRestart(msg); });
+        }
+        msg.textContent = 'Saved.';
+        var pw = f.elements['web.password'], clear = f.elements['web.clear_password'];
+        if (pw) {
+          if (clear.checked) el('web_password_state').textContent = 'none set';
+          else if (pw.value) el('web_password_state').textContent = 'set';
+          pw.value = '';
+          clear.checked = false;
+        }
+        remember(f);
+        btn.disabled = false;
+      })
+      .catch(function (err) {
+        msg.className = 'msg';
+        msg.textContent = 'Not saved: ' + err.message;
+        // Errors start with the setting's name (topic_base, queue_len...): point at that field.
+        var key = (/^\w+/.exec(err.message) || [''])[0];
+        var bad = fields(f).filter(function (x) { return x.name.split('.').pop() === key; })[0];
+        if (bad) {
+          var d = bad.closest('details');
+          if (d) d.open = true;
+          bad.setAttribute('aria-invalid', 'true');
+          bad.focus();
+        }
+        btn.disabled = false;
+      });
+  });
+});
+
+document.querySelectorAll('.reset-btn').forEach(function (b) {
+  b.addEventListener('click', function () {
+    if (!confirm(b.dataset.confirm)) return;
+    var msg = el('reset_msg'), wifi = b.dataset.wifi === 'true';
+    msg.className = 'msg good';
+    msg.textContent = 'Resetting…';
+    post('/api/reset', { confirm: true, wifi: wifi })
+      .then(function () {
+        if (wifi) {
+          restarting = true;
+          msg.textContent = 'Reset. The device is starting setup mode: join the PicoPIR-SETUP Wi-Fi network, then open http://192.168.4.1 to set it up again.';
+        } else {
+          msg.textContent = 'Reset. Restarting the device…';
+          waitForRestart(msg);
+        }
+      })
+      .catch(function (err) { msg.className = 'msg'; msg.textContent = 'Not reset: ' + err.message; });
+  });
+});
+
+// Show the topics the base gives, as they'll be once saved.
+var deviceName = '';
+function showTopics() {
+  var base = el('topic_base').value.trim().split('{name}').join(deviceName), p = el('topic_preview');
+  p.textContent = '';
+  if (!base) return;
+  [['Online status', '/status'], ['Health', '/info']].forEach(function (x) {
+    var d = document.createElement('div'), c = document.createElement('code');
+    d.textContent = x[0] + ': ';
+    c.textContent = base + x[1];
+    d.appendChild(c);
+    p.appendChild(d);
+  });
+}
+el('topic_base').addEventListener('input', showTopics);
+
+// Time zones, as offsets in minutes: every hour, and the half and quarter hours in use.
+[-720, -660, -600, -570, -540, -480, -420, -360, -300, -240, -210, -180, -120, -60, 0, 60, 120, 180, 210, 240, 270,
+  300, 330, 345, 360, 390, 420, 480, 525, 540, 570, 600, 630, 660, 720, 765, 780, 840].forEach(function (m) {
+  var o = document.createElement('option'), a = Math.abs(m);
+  o.value = m;
+  o.textContent = 'UTC' + (m < 0 ? '−' : '+') + ('0' + Math.floor(a / 60)).slice(-2) + ':' + ('0' + a % 60).slice(-2);
+  el('utc_offset_min').appendChild(o);
+});
+
+function loadConfig() {
+  return fetch('/api/config')
+    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function (cfg) {
+      fill(cfg);
+      el('ssid').value = cfg.wlan.ssid;
+      deviceName = cfg.device.device_name;
+      el('name_host').textContent = deviceName;
+      showTopics();
+      el('web_password_state').textContent = cfg.web && cfg.web.password_set ? 'set' : 'none set';
+      settingsForms.forEach(function (f) { remember(f); f.querySelector('.save').disabled = false; });
+    })
+    .catch(function (e) { showAlert('Could not load the settings (' + e.message + '). Reload to try again.'); });
+}
+
+refresh().then(loadConfig);
+</script>
+</body>
+</html>
