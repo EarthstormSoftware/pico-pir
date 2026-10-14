@@ -33,10 +33,14 @@ One device, with:
 - the clear time as a `number`, and sensing on/off as a `switch`;
 - the health sensors (already there), and availability from the `status` topic.
 
-The room is left unset: Home Assistant asks for one, and it can be set there later.
+The room is left unset; it is set in Home Assistant.
 
-## 5. Finish
+## 5. Finish (done)
 
 - `new_device.py`, as in PlasmaStick: firmware, Wi-Fi and the board's own MQTT user (from Mosquitto Manager) in one go.
 - A smoke-test script and skill.
 - README and this roadmap.
+
+## Later
+
+- An LED of its own for motion, if one is wanted: the onboard LED shows Wi-Fi, as on PlasmaStick.

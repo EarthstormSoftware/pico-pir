@@ -32,6 +32,8 @@ same code. When changing one of those shared modules, check whether PlasmaStick 
 - There is no local build system. `tests/` has host-side pytest tests for pure logic (`py -m pytest`; `tests/conftest.py` stubs `machine`, `network`, `rp2` and the u-modules). Add tests there for new parsing/validation logic. Hardware and network behaviour is still verified on the device.
 - Deploy with `scripts/deploy.ps1` (uses `mpremote`; compiles everything except `main.py`, including `src/lib/`, to `.mpy`). It keeps the device's `config.json` unless `-ResetConfig` is passed. `-WiFi <host>` updates over Wi-Fi instead (needs the device's web password).
 - `scripts/device_log.py --reset --until-ready` captures the boot log and checks its milestones.
+- `scripts/smoke_test.py --host <device> --mqtt-user <test user>` checks a running device over HTTP and MQTT (`--wave` adds real motion); the `smoke-test` skill runs deploy, boot log and smoke test together.
+- `scripts/new_device.py` sets up a new board (firmware, Wi-Fi, its own MQTT user from Mosquitto Manager), from the gitignored `device-template.json`.
 - For mqtt_as upgrades and rollback/testing commands, follow `docs/mqtt_as_maintenance.md`.
 - Minimum validation after behavior changes:
   - Device boots and main tasks start.

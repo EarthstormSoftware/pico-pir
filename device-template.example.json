@@ -1,0 +1,21 @@
+{
+    "wifi_ssid": "MyNetwork",
+    "mosqman": {
+        "exe": "mosqman",
+        "profile": "home"
+    },
+    "test_mqtt_user": "tester",
+    "device": {
+        "pir_pin": 22,
+        "utc_offset_min": 0,
+        "dst": "eu"
+    },
+    "sensor": {
+        "enabled": true,
+        "clear_after_s": 15
+    },
+    "mqtt": {
+        "broker_address": "192.168.1.10",
+        "ha_discovery": true
+    }
+}

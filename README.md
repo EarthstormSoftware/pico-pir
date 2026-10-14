@@ -94,6 +94,35 @@ or the device can't load the `.mpy` files.
 To watch it start, `py scripts\device_log.py --reset --until-ready` restarts the board, captures its boot log to
 `build\device.log` and summarises it.
 
+### Setting up a new board
+
+`scripts/new_device.py` sets up a freshly flashed board in one go: the firmware, its Wi-Fi, an MQTT user of its own
+(named after the device, created with Mosquitto Manager's `mosqman`) and its settings. First flash MicroPython for
+the Pico W (see [Hardware](#hardware)); the script checks for it and won't touch a board that already has files
+unless given `--force`.
+
+Once: copy `device-template.example.json` to `device-template.json` (gitignored) and fill in your network name,
+broker, `mosqman` profile, test MQTT user and the settings most boards share, then save the Wi-Fi details the
+boards get:
+
+```powershell
+py scripts\new_device.py save-wifi --from-port COM5   # from a working board, over USB
+py scripts\new_device.py save-wifi --prompt           # or type them
+```
+
+They're kept under `%APPDATA%\PicoPIR`, encrypted with Windows DPAPI for your Windows account only. Then for each
+board:
+
+```powershell
+py scripts\new_device.py setup --port COM6 --name Hallway --clear-after 30
+py scripts\new_device.py check --name Hallway --host 192.168.1.50   # after the broker has reloaded
+```
+
+`--pin` and `--clear-after` override the template for that board. Both passwords are written to the board encrypted
+with its own key and are never printed. With a password-file broker, restart Mosquitto after `setup` so it loads
+the new user; `check` then waits for the board to log in and runs the smoke test through the template's
+`test_mqtt_user`.
+
 ### Updating over Wi-Fi
 
 Once a device runs this firmware, later versions can go over Wi-Fi:
@@ -118,6 +147,20 @@ MicroPython-only modules, so they don't need the device:
 ```powershell
 py -m pytest
 ```
+
+Anything that touches hardware or the network still needs the device. `scripts/smoke_test.py` checks a running
+board over HTTP and MQTT: the API and web page, changing the sensor's settings, the retained topics, commands on
+the set topic (bad ones included) and the Home Assistant discovery configs. It puts the settings back afterwards.
+`--wave` also asks you to wave at the sensor and checks the motion and the clear arrive over MQTT, and `--soak 300`
+polls it for five minutes:
+
+```powershell
+py scripts\smoke_test.py --host hallway.local --mqtt-user tester --wave
+```
+
+A board with its own MQTT user is tested through another login (`--mqtt-user`), whose password comes from
+`PICOPIR_MQTT_PASSWORD`. In Claude Code, the `smoke-test` skill (`.claude/skills/`) deploys, captures the boot and
+runs all of this.
 
 ## Configuration
 
@@ -171,7 +214,7 @@ Assistant.
 | `src/www/` | The web UI, deployed to `/www`: a static page that fills itself in from the JSON API |
 | `src/lib/` | Third-party libraries, deployed to `/lib`: `microdot` (web server), `mqtt_as` (MQTT client) |
 | `tests/` | Host-side pytest tests (`py -m pytest`); `conftest.py` stands in for the MicroPython-only modules |
-| `scripts/` | `deploy.ps1`; `wifi_update.py` (`deploy.ps1 -WiFi`); `device_log.py` (capture and summarise the serial log) |
+| `scripts/` | `deploy.ps1`; `wifi_update.py` (`deploy.ps1 -WiFi`); `new_device.py` (set up a new board); `device_log.py` (capture and summarise the serial log); `smoke_test.py` (test a running device over HTTP and MQTT) |
 | `docs/` | The roadmap and maintenance notes |
 
 ## Known Restrictions
