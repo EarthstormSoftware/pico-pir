@@ -188,7 +188,7 @@ With MQTT enabled (MQTT tab, or `mqtt` in `config.json`), the device uses these 
 | Topic | Direction | Contents |
 |---|---|---|
 | `<base>/status` | from the device, retained | `online` while connected. The broker sets `offline` (the MQTT will) if the device drops off |
-| `<base>/info` | from the device, retained | `{"version": "0.1.0", "uptime_s": 3600, "rssi": -58, "ip": "192.168.1.20", "mem_free": 86208}`: the device's health, as in `/api/info`, on connecting and every minute |
+| `<base>/info` | from the device, retained | `{"version": "1.0.0", "uptime_s": 3600, "rssi": -58, "ip": "192.168.1.20", "mem_free": 86208}`: the device's health, as in `/api/info`, on connecting and every minute |
 | `<base>/state` | from the device, retained | `{"motion": true, "last": "2026-10-14T14:04:59+02:00", "count": 3, "enabled": true, "clear_after_s": 15}`: on connecting and whenever any of it changes. `last` is null until the clock is set |
 | `<base>/set` | to the device | `{"enabled": false}` turns sensing off (`true` on again), `{"clear_after_s": 30}` sets the clear time (5-3600 s); either or both. Saved, as from the web page. Don't retain these: a retained command is ignored |
 
