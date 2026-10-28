@@ -62,14 +62,17 @@ def info(device):
         return {}
     motion = _sensor.info()
     motion['last'] = _iso(motion['last'])
-    motion['recent'] = [[_iso(start), _iso(end)] for start, end in motion['recent']]
+    motion['recent'] = [[_iso(t) for t in detection] for detection in motion['recent']]
     return {'motion': motion}
 
 
 def state(device):
-    """The state topic: what the sensor sees, and its settings."""
+    """The state topic: what the sensor sees, and its settings. last is when the latest movement started, last_end
+    when the sensor last saw it (null while it's moving), without the clear time."""
     motion = _sensor.info()
-    return {'motion': motion['active'], 'last': _iso(motion['last']), 'count': motion['count'],
+    latest = motion['recent'][0] if motion['recent'] else None
+    return {'motion': motion['active'], 'last': _iso(motion['last']),
+            'last_end': _iso(latest[1]) if latest else None, 'count': motion['count'],
             'enabled': motion['enabled'], 'clear_after_s': device.settings.get('sensor', 'clear_after_s')}
 
 

@@ -69,7 +69,9 @@ class MotionSensor:
         pin = device.settings.get('device', 'pir_pin')
         self.pin = Pin(pin, Pin.IN, Pin.PULL_DOWN)  # low if nothing is connected
         self.tracker = MotionTracker(time.ticks_ms())
-        # The latest detections, newest first: [start, end] as time.time(), end None while it lasts.
+        # The latest detections, newest first: [start, moved until, cleared] as time.time(). Moved until is when the
+        # sensor's output last went low (the movement it saw, without the clear time), None while it's high; cleared
+        # is when it was reported clear, None until then.
         self.recent = []
         self._level = 0
         self._level_since = time.ticks_ms()
@@ -78,9 +80,9 @@ class MotionSensor:
     def shift_clock(self, seconds):
         """The clock was just moved by seconds: keep the detection times right."""
         for detection in self.recent:
-            detection[0] += seconds
-            if detection[1] is not None:
-                detection[1] += seconds
+            for i, t in enumerate(detection):
+                if t is not None:
+                    detection[i] = t + seconds
 
     def info(self):
         t = self.tracker
@@ -102,12 +104,18 @@ class MotionSensor:
         if was_settling and not self.tracker.settling:
             Log.info(TAG, 'PIR sensor settled')
         if event == MOTION:
-            self.recent.insert(0, [now_s, None])
+            self.recent.insert(0, [now_s, None, None])
             del self.recent[RECENT:]
             Log.info(TAG, f'Motion detected ({self.tracker.count} since boot)')
-        elif event == CLEAR:
-            self.recent[0][1] = now_s
-            Log.info(TAG, 'Motion cleared')
+        elif self.tracker.active and self.recent:
+            # Movement within the detection: it lasts until the output last goes low
+            self.recent[0][1] = None if level else (self.recent[0][1] or now_s)
+        if event == CLEAR:
+            current = self.recent[0]
+            if current[1] is None:  # cleared while still high (sensing switched off)
+                current[1] = now_s
+            current[2] = now_s
+            Log.info(TAG, f'Motion cleared (moved for {current[1] - current[0]} s)')
         if event:
             self.device.state_changed()
 

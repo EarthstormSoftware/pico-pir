@@ -100,17 +100,18 @@ def detect(sensor, start_ms, high_ms, wall):
     return end
 
 
-def test_detections_are_kept_newest_first_with_their_start_and_end(sensor):
+def test_detections_are_kept_newest_first_with_their_start_movement_and_clear(sensor):
     end = detect(sensor, SETTLED, 3000, 1000)
     detect(sensor, end + 10000, 3000, 2000)
     info = sensor.info()
-    assert info['recent'] == [[2000, 2032], [1000, 1032]]
+    # Moved for 3 s; cleared 30 s (the clear time) after that
+    assert info['recent'] == [[2000, 2003, 2032], [1000, 1003, 1032]]
     assert info['last'] == 2000 and info['count'] == 2 and not info['active']
 
 
 def test_a_detection_still_going_has_no_end(sensor):
     sensor.poll(1, SETTLED, 5000)
-    assert sensor.info()['recent'] == [[5000, None]]
+    assert sensor.info()['recent'] == [[5000, None, None]]
     assert sensor.info()['active']
 
 
@@ -129,8 +130,24 @@ def test_detection_times_move_with_the_clock(sensor):
     end = detect(sensor, SETTLED, 3000, 60)
     sensor.poll(1, end + 1000, 200)
     sensor.shift_clock(1000)
-    assert sensor.info()['recent'] == [[1200, None], [1060, 1092]]
+    assert sensor.info()['recent'] == [[1200, None, None], [1060, 1063, 1092]]
 
 
 def test_no_detections_yet(sensor):
     assert sensor.info()['last'] is None and sensor.info()['recent'] == []
+
+
+def test_movement_lasts_until_the_sensor_last_goes_low(sensor):
+    # High, low, high again within the clear time: one detection, moving until the second low
+    for ms, level in ((0, 1), (2000, 0), (6000, 1), (9000, 0)):
+        sensor.poll(level, SETTLED + ms, 3000 + ms // 1000)
+    assert sensor.info()['recent'] == [[3000, 3009, None]]
+    sensor.poll(1, SETTLED + 10000, 3010)
+    assert sensor.info()['recent'] == [[3000, None, None]]  # moving now
+
+
+def test_switching_sensing_off_while_moving_ends_the_movement_then(sensor):
+    sensor.poll(1, SETTLED, 4000)
+    sensor.device.values[('sensor', 'enabled')] = False
+    sensor.poll(1, SETTLED + 5000, 4005)
+    assert sensor.info()['recent'] == [[4000, 4005, 4005]]

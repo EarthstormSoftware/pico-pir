@@ -344,11 +344,14 @@ function showMotion(m, now) {
   var list = el('s_recent');
   list.textContent = '';
   if (!m.recent.length) list.appendChild(Base.mk('li', { text: 'None since the start' }));
+  // Each: when it started, until the sensor last saw movement (without the clear time), and when it was cleared
   m.recent.forEach(function (d, n) {
-    var start = d[0], end = d[1];
+    var start = d[0], moved = d[1], cleared = d[2], current = n === 0 && m.active;
+    var text = moved ? ' – ' + when(moved, now) + (start ? ' (moved ' + seconds(between(start, moved)) + ')' : '')
+      : current ? ' – moving now' : '';
+    text += cleared ? ', clear at ' + when(cleared, now) : current && moved ? ', waiting to clear' : '';
     list.appendChild(Base.mk('li', { text: start ? when(start, now) : 'Time not known' }, [
-      Base.mk('span', { className: 'when', text: end ? ' to ' + when(end, now) + ' (' + seconds(between(start, end)) + ')'
-        : n === 0 && m.active ? ' to now' : '' })
+      Base.mk('span', { className: 'when', text: text })
     ]));
   });
 }

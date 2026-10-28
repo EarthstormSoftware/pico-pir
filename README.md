@@ -33,7 +33,7 @@ holds what's Pico PIR's own: the sensor, its settings, its MQTT state and comman
   again. Both times, and whether it does this at all, are on the Network tab (`wlan.fallback`,
   `wlan.fallback_after_min`, `wlan.fallback_for_min`; `GET` and `POST /api/wifi`).
 - Web UI and JSON HTTP API on port 80. The Status tab shows motion now, the last motion and the last 10
-  detections (when each started and cleared) beside the firmware version, uptime, time, free memory, Wi-Fi and
+  detections (when each started, how long the sensor saw movement, and when it was cleared) beside the firmware version, uptime, time, free memory, Wi-Fi and
   MQTT, all from `/api/info`; the other tabs hold the settings, the sensor's on the Device tab. An optional web password (Device tab) protects
   both with HTTP Basic auth (any username; `curl -u any:password`). It's sent unencrypted over your network, so it
   keeps out other people on the network rather than a determined attacker. Completing setup mode removes it, if
@@ -199,7 +199,7 @@ With MQTT enabled (MQTT tab, or `mqtt` in `config.json`), the device uses these 
 |---|---|---|
 | `<base>/status` | from the device, retained | `online` while connected. The broker sets `offline` (the MQTT will) if the device drops off |
 | `<base>/info` | from the device, retained | `{"version": "2.0.0", "uptime_s": 3600, "rssi": -58, "ip": "192.168.1.20", "mem_free": 86208}`: the device's health, as in `/api/info`, on connecting and every minute |
-| `<base>/state` | from the device, retained | `{"motion": true, "last": "2026-10-14T14:04:59+02:00", "count": 3, "enabled": true, "clear_after_s": 15}`: on connecting and whenever any of it changes. `last` is null until the clock is set |
+| `<base>/state` | from the device, retained | `{"motion": false, "last": "2026-10-14T14:04:59+02:00", "last_end": "2026-10-14T14:05:06+02:00", "count": 3, "enabled": true, "clear_after_s": 15}`: on connecting and whenever any of it changes. `last` is when the latest movement started, `last_end` when the sensor last saw it (null while it's moving), without the clear time; `motion` clears `clear_after_s` after that. Times are null until the clock is set |
 | `<base>/set` | to the device | `{"enabled": false}` turns sensing off (`true` on again), `{"clear_after_s": 30}` sets the clear time (5-3600 s); either or both. Saved, as from the web page. Don't retain these: a retained command is ignored |
 
 With **Home Assistant discovery** turned on (`mqtt.ha_discovery`), the device publishes retained discovery configs
