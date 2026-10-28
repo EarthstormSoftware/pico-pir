@@ -5,7 +5,7 @@ licence, reproduced below as that licence requires.
 
 ## Microdot
 
-`src/lib/microdot.py`, from [Microdot](https://github.com/miguelgrinberg/microdot) by Miguel Grinberg.
+`src/base/microdot.py` (in App Base's copy), from [Microdot](https://github.com/miguelgrinberg/microdot) by Miguel Grinberg.
 
 ```text
 MIT License

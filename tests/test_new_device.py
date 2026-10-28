@@ -29,26 +29,33 @@ def test_the_example_template_builds_a_config_with_overrides():
     assert template['device'] is not config['device']  # the template itself is left alone
 
 
-def test_the_built_config_passes_the_firmwares_checks(tmp_path, monkeypatch):
-    from api import DeviceAPI
-    from deviceconfig import DeviceConfig
-    monkeypatch.chdir(tmp_path)
+def schema():
+    import product
+    from base import pico
+    from base.mqtt import MQTT_SETTINGS
+    from base.settings import BASE_SETTINGS, merge
+    return merge(BASE_SETTINGS, MQTT_SETTINGS, pico.SETTINGS, product.SETTINGS)
+
+
+def test_the_built_config_passes_the_firmwares_checks():
     config = new_device.build_config(new_device.read_template(EXAMPLE), 'Hallway', [])
-    api = DeviceAPI(DeviceConfig.loadConfigFromFile(), pico_led=None)
-    device = {k: v for k, v in config['device'].items() if k != 'device_name'}
-    mqtt = {k: v for k, v in config['mqtt'].items() if k != 'user'}
-    assert api.save_config({'device': device, 'sensor': config['sensor'], 'mqtt': mqtt}) == (True, None)
+    known = schema()
+    for section, values in config.items():
+        for key, value in values.items():
+            setting = known[section][key]
+            assert setting.check is None or setting.check(value) is None, (section, key, value)
 
 
-def test_the_built_config_boots_as_written(tmp_path, monkeypatch):
-    # Written straight to config.json by setup, so it has to load without falling back to defaults.
-    from deviceconfig import DeviceConfig
-    monkeypatch.chdir(tmp_path)
+def test_the_built_config_boots_as_written(tmp_path):
+    # Written straight to config.json by setup, so it has to load as it is, with no defaults put in its place
+    from base import pico
+    from base.settings import Settings
     config = new_device.build_config(new_device.read_template(EXAMPLE), 'Hallway', [('device', 'pir_pin', 15)])
     (tmp_path / 'config.json').write_text(json.dumps(config))
-    loaded = DeviceConfig.loadConfigFromFile()
-    assert loaded.pir_pin == 15 and loaded.sensorconfig.clear_after_s == 15
-    assert loaded.mqttconfig.user == 'Hallway' and loaded.mqttconfig.ha_discovery
+    loaded = Settings(str(tmp_path / 'config.json'), schema(), codec=pico.Codec)
+    assert loaded.get('device', 'pir_pin') == 15 and loaded.get('sensor', 'clear_after_s') == 15
+    assert loaded.get('mqtt', 'user') == 'Hallway' and loaded.get('mqtt', 'ha_discovery')
+    assert loaded.get('device', 'device_name') == 'Hallway'
 
 
 @pytest.mark.skipif(sys.platform != 'win32', reason='DPAPI is Windows only')

@@ -63,20 +63,32 @@ def test_a_shorter_clear_time_applies_at_once(tracker):
     assert feed(tracker, [(t + 6000, 0)], clear_after_s=5) == [(t + 6000, CLEAR)]
 
 
-class Config:
-    pir_pin = 22
+class Device:
+    """The settings the sensor reads, and the state changes it reports."""
 
-    class sensorconfig:
-        enabled = True
-        clear_after_s = 30
+    def __init__(self):
+        self.values = {('device', 'pir_pin'): 22, ('sensor', 'enabled'): True, ('sensor', 'clear_after_s'): 30}
+        self.settings = self
+        self.changes = 0
+
+    def get(self, section, key):
+        return self.values[(section, key)]
+
+    def state_changed(self):
+        self.changes += 1
 
 
 @pytest.fixture
 def sensor():
     from motion import MotionSensor
-    s = MotionSensor(Config())
+    s = MotionSensor(Device())
     s.tracker = MotionTracker(0)
     return s
+
+
+def test_motion_and_clear_are_reported(sensor):
+    detect(sensor, SETTLED, 3000, 1000)
+    assert sensor.device.changes == 2
 
 
 def detect(sensor, start_ms, high_ms, wall):
