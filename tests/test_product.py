@@ -29,7 +29,10 @@ def as_v1(config):
 
 
 def test_the_topics_are_v1s():
-    assert topics() == v1()['topics']
+    # 1.0's, unchanged, and the log topic 2.0 adds
+    t = topics()
+    assert t.pop('log') == '/home/device/hall/log'
+    assert t == v1()['topics']
 
 
 def test_the_sensor_entities_are_v1s():
