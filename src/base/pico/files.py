@@ -248,6 +248,8 @@ def prepare():
     reason = 'no Wi-Fi saved' if not ssid else None
     if take_setup_request() and not reason:
         reason = 'asked for'
+    if not reason and hasattr(product, 'setup_held') and product.setup_held():
+        reason = 'held at power-on'
     if reason:
         Log.warn(TAG, 'Setup mode: {}'.format(reason))
         from base.pico import setup

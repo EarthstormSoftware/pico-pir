@@ -6,7 +6,13 @@ A product is a module (product.py) with:
   MANUFACTURER, MODEL           optional: the hardware, for Home Assistant (default: Earthstorm Software, NAME)
   SETTINGS                      its own settings ({section: {key: Setting}}), next to the base's
   LIGHT_MODES (lights only)     its effects by name ({} for Colour only); with it, the product is a light
-  output(device) (lights only)  its LEDs: an object with count and show(frame)
+  output(device) (lights only)  its LEDs: an object with count and show(frame), or one that draws itself (paint,
+                                clear and strip: see Light._run_direct)
+  MIN_LEVEL (lights only)       optional: the share of full output that 1% brightness draws (default 0.06)
+  MODE_ORDER (lights only)      optional: the modes' order, after Colour (a MicroPython dict may not keep LIGHT_MODES')
+  setup_held()                  optional, on a Pico: True to start setup mode at power-on (a button held, say)
+  Codec                         optional: load(stored) and dump(values) for its part of a settings file laid out
+                                its own way (its firmware before the base), after the platform's
   info(device)                  optional: its own fields for /api/info
   routes(app, device)           optional: its own API routes
   applied(device, changed)      optional: settings changed ((section, key) pairs) that apply at once
@@ -28,6 +34,26 @@ TAG = 'DEVICE'
 PORT = 80
 
 
+class _Both:
+    """The platform's codec and the product's, for a file laid out by both (a Pico product's firmware before the
+    base): loading takes the platform's part first, saving the product's."""
+
+    def __init__(self, platform, product):
+        self.platform, self.product = platform, product
+
+    def load(self, stored):
+        return self.product.load(self.platform.load(stored))
+
+    def dump(self, values):
+        return self.platform.dump(self.product.dump(values))
+
+
+def _codec(platform, product):
+    if platform is not None and product is not None:
+        return _Both(platform, product)
+    return platform or product
+
+
 class Device:
     def __init__(self, product, platform):
         self.product = product
@@ -47,13 +73,14 @@ class Device:
             schemas[1:1] = [LIGHT_SETTINGS, schedule_settings(('Colour',) + tuple(product.LIGHT_MODES)),
                             LIGHT_MQTT_SETTINGS]
         self.settings = Settings(platform.state_path('config.json'), merge(*schemas),
-                                 codec=getattr(platform, 'Codec', None))
+                                 codec=_codec(getattr(platform, 'Codec', None), getattr(product, 'Codec', None)))
         Log.level = self.settings.get('device', 'log_level')
         self.www = getattr(product, 'www', None) or beside(product.__file__, 'www')
         self.light = None
         if is_light:
             from base.light import Light
-            self.light = Light(product.output(self), self.settings, product.LIGHT_MODES, product)
+            self.light = Light(product.output(self), self.settings, product.LIGHT_MODES, product,
+                               getattr(product, 'MIN_LEVEL', 0.06))
         self.mqtt = None  # until it's made, as making it asks info() which figures there are
         if is_light:
             from base.lightmqtt import LightMqtt as Mqtt
@@ -76,7 +103,7 @@ class Device:
             info['light'] = {
                 'state': light.on,
                 'mode': light.mode,
-                'parameters': light.parameters,
+                'parameters': light.state()['ModeParameters'],  # with an effect's defaults, as MQTT has them
                 'brightness': light.brightness,
                 'modes': light.modes,
                 'alert': {'enabled': self.settings.get('alert', 'enabled'), 'active': light.alerting},

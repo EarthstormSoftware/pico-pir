@@ -96,7 +96,8 @@ class Light:
         self.output = output
         self.settings = settings
         self.effects = modes or {}
-        self.modes = ('Colour',) + tuple(self.effects)
+        # In the product's order (MODE_ORDER), where it gives one: a MicroPython dict may not keep it
+        self.modes = ('Colour',) + tuple(getattr(product, 'MODE_ORDER', None) or self.effects)
         self.product = product
         self.min_level = min_level
         self.on = False
@@ -170,6 +171,8 @@ class Light:
             self.parameters.update(parameters)
             if self._effect is not None and hasattr(self._effect, 'update'):
                 self._effect.update(self.parameters)
+            elif any(key in parameters for key in getattr(self.effects.get(self.mode), 'remakes', ())):
+                self._effect = None  # made again with them (an effect class's remakes, such as a style)
         if self.mode == 'Colour':
             self._fade_colour(rgb(self.parameters['Colour']), fade)
         if brightness is not None:
@@ -234,9 +237,14 @@ class Light:
         return self.on
 
     def state(self):
-        """As PlasmaStick's MQTT state: {"State", "Mode", "ModeParameters", "Brightness"}."""
-        return {'State': self.on, 'Mode': self.mode, 'ModeParameters': dict(self.parameters),
-                'Brightness': self.brightness}
+        """As PlasmaStick's MQTT state: {"State", "Mode", "ModeParameters", "Brightness"}. An effect class can say what
+        it uses when a parameter isn't given (defaults(light), such as the speed), which the state shows too."""
+        parameters = dict(self.parameters)
+        defaults = getattr(self.effects.get(self.mode), 'defaults', None)
+        if defaults is not None:
+            for key, value in defaults(self).items():
+                parameters.setdefault(key, value)
+        return {'State': self.on, 'Mode': self.mode, 'ModeParameters': parameters, 'Brightness': self.brightness}
 
     # Drawing
 
@@ -306,6 +314,9 @@ class Light:
 
     async def run(self):
         """Draws while anything moves, and waits for a change otherwise."""
+        if hasattr(self.output, 'paint'):
+            await self._run_direct()
+            return
         last = None
         while True:
             pixels, moving = self.frame(ticks_ms())
@@ -316,6 +327,61 @@ class Light:
                     Log.error(TAG, 'Showing a frame: {}'.format(e))
                 last = pixels
             if moving:
+                await sleep_ms(FRAME_MS)
+            else:
+                self._wake.clear()
+                await self._wake.wait()
+
+    async def _run_direct(self):
+        """For an output that draws itself (a Pico's LED strip, where a frame of new tuples each time would keep the
+        garbage collector busy): it paints one colour at a level (paint(rgb, level), clear()), and an effect draws
+        straight into its strip (frame(strip, level) -> the ms to the next frame, with its speed set first), so a frame
+        allocates nothing. Nothing is drawn while nothing changes."""
+        out = self.output
+        painted = None  # what's on the LEDs, when it's one colour
+        while True:
+            now = ticks_ms()
+            moving = self._step(now)
+            wait = None
+            if self._alert is not None:
+                colour, start, ms, on_ms, off_ms, level = self._alert
+                elapsed = ticks_diff(now, start)
+                if elapsed < ms:
+                    look = (colour, level) if elapsed % (on_ms + off_ms) < on_ms else ((0, 0, 0), 0)
+                    if look != painted:
+                        out.paint(*look)
+                        painted = look
+                    wait = FRAME_MS
+                else:
+                    self.stop_alert()
+                    continue
+            if wait is None:
+                level = self._level
+                try:
+                    if level <= 0:
+                        if painted != 'off':
+                            out.clear()
+                            painted = 'off'
+                    elif self.mode == 'Colour':
+                        look = (self._colour, level)
+                        if look != painted:
+                            out.paint(*look)
+                            painted = look
+                    else:
+                        effect = self.effect()
+                        if hasattr(effect, 'speed'):
+                            effect.speed = self.speed()
+                        wait = effect.frame(out.strip, level)
+                        painted = None
+                        if getattr(effect, 'finished', False):
+                            self._effect = None
+                            self.set(on=False, transition_ms=0)
+                except Exception as e:
+                    Log.error(TAG, 'Drawing: {}'.format(e))
+                    wait = 100
+            if wait is not None:
+                await sleep_ms(wait)
+            elif moving:
                 await sleep_ms(FRAME_MS)
             else:
                 self._wake.clear()
