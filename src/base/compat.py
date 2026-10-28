@@ -76,3 +76,13 @@ def write_atomically(path, text):
             os.fsync(f.fileno())
     # replace overwrites on Windows too (for trying an app on a PC); MicroPython's rename overwrites
     getattr(os, 'replace', os.rename)(temporary, path)
+
+
+def release(name):
+    """Lets a module go (base.discovery, say), so its code leaves the heap: from sys.modules, and from its package,
+    where importing it also kept it."""
+    import sys
+    sys.modules.pop(name, None)
+    package, _, short = name.rpartition('.')
+    if package in sys.modules:
+        sys.modules[package].__dict__.pop(short, None)

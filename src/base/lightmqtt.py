@@ -22,7 +22,7 @@ mqtt.alert_topic, if set, is another device's topic to watch: a message on it st
 motion sensor can ring the light like a doorbell.
 """
 from base.compat import asyncio, json
-from base.mqtt import Mqtt, topics, _device, watch_topic_error
+from base.mqtt import Mqtt, topics, watch_topic_error
 from base.settings import Setting, is_bool
 
 # Home Assistant gives colour temperatures in mireds (a million over kelvin): 6500 K to 2000 K
@@ -117,6 +117,7 @@ def ha_state_payload(state):
 
 
 def ha_light_payload(name, t, product, modes):
+    from base.discovery import device as _device
     return json.dumps({
         'name': None,  # the entity takes the device's name
         'unique_id': name + '_light',
@@ -142,6 +143,7 @@ def alert_state_payload(light):
 
 
 def ha_alerts_payload(name, t, product):
+    from base.discovery import device as _device
     """The switch that turns alerts on and off."""
     return json.dumps({
         'name': 'Alerts', 'unique_id': name + '_alerts', 'icon': 'mdi:alarm-light-outline',
@@ -153,6 +155,7 @@ def ha_alerts_payload(name, t, product):
 
 
 def ha_alert_payload(name, t, product):
+    from base.discovery import device as _device
     """The button that starts an alert (when they're switched on)."""
     return json.dumps({
         'name': 'Alert', 'unique_id': name + '_alert', 'icon': 'mdi:alarm-light', 'command_topic': t['alert'],
@@ -297,7 +300,7 @@ class LightMqtt(Mqtt):
     def _tasks(self, client):
         return super()._tasks(client) + [self._publish_group(client)]
 
-    async def _up_light(self, client):
+    async def _up_light(self, client, discovery):
         t = self.topics
         await client.subscribe(t['control'])
         if self.ha:

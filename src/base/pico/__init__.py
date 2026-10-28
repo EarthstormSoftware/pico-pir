@@ -17,7 +17,7 @@ run(product), from the product's main.py (through app.py, which main.py imports)
 """
 import time
 import machine
-from base.compat import asyncio, json, write_atomically, collect, mem_free, sleep_ms
+from base.compat import asyncio, json, collect, mem_free, sleep_ms, release
 from base.log import Log
 from base.settings import Setting, is_bool, is_int, is_one_of, is_text
 
@@ -53,18 +53,23 @@ def _utc_offset_error(value):
     return None
 
 
+def _files(name, *args):
+    """Calls name in base.pico.files, then lets that module go again: its code is only in the heap while it works."""
+    from base.pico import files
+    try:
+        return getattr(files, name)(*args)
+    finally:
+        del files
+        for module in ('files', 'identity', 'crypto'):  # with what it brought in for the work
+            release('base.pico.' + module)
+
+
 def _encrypt(value):
-    from base.pico.crypto import encrypt_password
-    return '$'.join(encrypt_password(value))
+    return _files('encrypt', value)
 
 
 def _decrypt(kept):
-    from base.pico.crypto import decrypt_password
-    try:
-        return decrypt_password(*kept.split('$'))
-    except Exception as e:  # another board's file, or a damaged one
-        Log.warn(TAG, "Couldn't decrypt the MQTT password: {!r}".format(e))
-        return ''
+    return _files('decrypt', kept)
 
 
 SETTINGS = {
@@ -103,38 +108,15 @@ SETTINGS = {
 
 
 class Codec:
-    """config.json in the old firmware's layout."""
+    """config.json in the old firmware's layout (base.pico.files)."""
 
     @staticmethod
     def load(stored):
-        stored = dict(stored)
-        web = dict(stored.get('web') or {})
-        if web.get('password'):  # typed into the file by hand: hashed as the old firmware did
-            from base.passwords import hash_password
-            web['password'] = hash_password(web['password'])
-        else:
-            web['password'] = web.get('password_hash', '')
-        stored['web'] = web
-        mqtt = dict(stored.get('mqtt') or {})
-        if mqtt.get('password'):  # by hand too
-            mqtt['password'] = _encrypt(mqtt['password'])
-        elif mqtt.get('password_iv') and mqtt.get('password_enc'):
-            mqtt['password'] = mqtt['password_iv'] + '$' + mqtt['password_enc']
-        stored['mqtt'] = mqtt
-        return stored
+        return _files('codec_load', stored)
 
     @staticmethod
     def dump(values):
-        stored = dict(values)
-        web = dict(values['web'])
-        web['password_hash'] = web.pop('password')
-        stored['web'] = web
-        mqtt = dict(values['mqtt'])
-        password = mqtt.pop('password')
-        if password:
-            mqtt['password_iv'], mqtt['password_enc'] = password.split('$')
-        stored['mqtt'] = mqtt
-        return stored
+        return _files('codec_dump', values)
 
 
 # What run() sets up
@@ -172,23 +154,13 @@ def device_name():
     """Set on the page, else given in setup mode, else in config.json, else made from the board's id."""
     global _name
     if _name is None:
-        from base.pico import identity
-        provisioned = _load(PROVISIONING) or {}
-        configured = (_load(CONFIG) or {}).get('device') or {}
-        _name = identity.clean(identity.renamed(path(NAME)) or provisioned.get('device_name') or
-                               configured.get('device_name'), product.NAME_PREFIX)
+        _name = _files('name')
     return _name
 
 
 def rename(name):
     """Saves a new name (from the page), used from the next start. Returns why it couldn't, or None."""
-    from base.pico import identity
-    if not isinstance(name, str) or not 0 < len(name.strip()) <= 32:
-        return 'The name must be 1-32 characters.'
-    cleaned = identity.clean(name, product.NAME_PREFIX)
-    write_atomically(path(NAME), json.dumps({'name': cleaned}))
-    Log.info(TAG, 'Renamed {}: from the next start'.format(cleaned))
-    return None
+    return _files('rename', name)
 
 
 def health():
@@ -251,142 +223,33 @@ def setup_mode():
     restart()
 
 
-def _remove(*names):
-    import os
-    for name in names:
-        try:
-            os.remove(path(name))
-        except OSError:
-            pass
-
-
 def reset():
     """After the settings are reset (device.reset()): the name set on the page goes too."""
-    _remove(NAME)
+    _files('remove', NAME)
 
 
 def factory_reset():
     """Forgets the settings, the name and the Wi-Fi network, and restarts into setup mode."""
-    device.reset()
-    _remove(PROVISIONING, SETUP_REQUEST, WIFI_TRIAL, PREVIOUS)
-    Log.warn(TAG, 'Factory reset: settings and Wi-Fi forgotten')
-    restart()
-
-
-def _save_setup(name, ssid, password):
-    """What setup mode's page saves: the network and name (provisioning.json). It also clears the web password (so a
-    forgotten one can be recovered by someone with the board) and the name set on the page. Returns the name kept."""
-    from base.pico import identity
-    from base.pico.crypto import encrypt_password
-    name = identity.clean(name, product.NAME_PREFIX)
-    iv, encrypted = encrypt_password(password)
-    try:
-        write_atomically(path(PROVISIONING), json.dumps({'device_name': name, 'ssid': ssid, 'password_iv': iv,
-                                                         'password_enc': encrypted}))
-        write_atomically(path(WIFI_TRIAL), 'setup')
-        _remove(PREVIOUS)
-        config = _load(CONFIG)
-        if config and isinstance(config.get('web'), dict) and config['web'].get('password_hash'):
-            config['web']['password_hash'] = ''
-            write_atomically(path(CONFIG), json.dumps(config))
-        _remove(NAME)
-    except OSError as e:
-        Log.error(TAG, "Couldn't save the settings: {}".format(e))
-        return None
-    return name
+    _files('factory_reset')
 
 
 def change_wifi(ssid, password):
-    """Saves a new Wi-Fi network (from the page), used from the next start, on trial: if it doesn't connect within
-    wlan.TRIAL_S, the network before is put back. Returns why it couldn't, or None."""
-    if not isinstance(ssid, str) or not 0 < len(ssid.strip()) <= 32:
-        return 'The network name must be 1-32 characters.'
-    if not isinstance(password, str) or len(password) > 64 or 0 < len(password) < 8:
-        return 'The password must be 8-64 characters (empty for an open network).'
-    from base.pico.crypto import encrypt_password
-    try:
-        with open(path(PROVISIONING)) as f:
-            before = f.read()
-    except OSError:
-        before = '{}'  # none: a config.json written by hand had the network
-    saved = _load(PROVISIONING) or {}
-    iv, encrypted = encrypt_password(password)
-    new = {'ssid': ssid.strip(), 'password_iv': iv, 'password_enc': encrypted}
-    if saved.get('device_name'):
-        new['device_name'] = saved['device_name']
-    if not _exists(WIFI_TRIAL):  # on trial already: the one before that is still the one that worked
-        write_atomically(path(PREVIOUS), before)
-    write_atomically(path(PROVISIONING), json.dumps(new))
-    write_atomically(path(WIFI_TRIAL), 'page')
-    Log.info(TAG, 'Wi-Fi changed to {}: from the next start, on trial'.format(new['ssid']))
-    return None
-
-
-def _exists(name):
-    import os
-    try:
-        os.stat(path(name))
-        return True
-    except OSError:
-        return False
-
-
-def _trial():
-    """'page' or 'setup' while a new network is on trial, else None."""
-    try:
-        with open(path(WIFI_TRIAL)) as f:
-            return f.read().strip() or 'setup'
-    except OSError:
-        return None
+    """Saves a new Wi-Fi network (from the page), used from the next start, on trial. Returns why it couldn't, or
+    None."""
+    return _files('change_wifi', ssid, password)
 
 
 def _proven():
-    _remove(WIFI_TRIAL, PREVIOUS)
-    Log.info(TAG, 'The new Wi-Fi network works')
+    _files('proven')
 
 
 def _give_up():
-    """The new network didn't connect: the one before goes back (a change on the page), or setup mode again (a
-    network from setup mode, so it can be put right)."""
-    if _trial() == 'page':
-        try:
-            with open(path(PREVIOUS)) as f:
-                before = f.read()
-            if json.loads(before):
-                write_atomically(path(PROVISIONING), before)
-            else:
-                _remove(PROVISIONING)
-        except (OSError, ValueError):
-            pass
-        _remove(WIFI_TRIAL, PREVIOUS)
-        Log.warn(TAG, 'Back to the Wi-Fi network before')
-        restart()
-    setup_mode()
+    _files('give_up')
 
 
-def _take_setup_request():
-    import os
-    try:
-        os.remove(path(SETUP_REQUEST))
-        return True
-    except OSError:
-        return False
-
-
-def _wifi():
-    """(ssid, password): from setup mode, or from a config.json written by hand; ('', '') for none."""
-    from base.pico import setup
-    saved = setup.load(path(PROVISIONING))
-    if saved:
-        return saved['ssid'], saved['password']
-    wlan_config = (_load(CONFIG) or {}).get('wlan') or {}
-    return wlan_config.get('ssid') or '', wlan_config.get('password') or ''
-
-
-def _fallback_for_s():
-    wlan_config = (_load(CONFIG) or {}).get('wlan') or {}
-    minutes = wlan_config.get('fallback_for_min')
-    return (minutes if isinstance(minutes, int) and 5 <= minutes <= 120 else 10) * 60
+def provisioned(file):
+    """What provisioning.json holds ({"ssid", "password", "device_name"}, the password decrypted), or None."""
+    return _files('provisioned', file)
 
 
 async def _clock():
@@ -466,7 +329,6 @@ async def serving(server):
     await asyncio.sleep(1)
     if server.done():
         return
-    import sys
     from base.pico import ota
     rolled_back = ota.take_rollback()
     if rolled_back:
@@ -474,7 +336,8 @@ async def serving(server):
     confirmed = ota.mark_good()
     if confirmed:
         Log.info(TAG, 'Update to {} confirmed'.format(confirmed))
-    del sys.modules['base.pico.ota']  # only an update needs it again
+    del ota
+    release('base.pico.ota')  # only an update needs it again
     collect()
 
 
@@ -484,33 +347,9 @@ def routes(app, dev):
 
 
 def run(product_module):
-    global product, device, led, wlan, _stall
+    global product
     product = product_module
-    Log.info(TAG, '{} {} starting'.format(product.NAME, product.VERSION))
-    from base.pico import wdt as dog
-    # A watchdog left running by a soft reset would restart the board mid-start; watchdog() starts a new one
-    dog.disable()
-    _stall = dog.take_stall_report()
-    if _stall is not None:
-        Log.warn(TAG, 'Restarted by the watchdog: the firmware had stalled for {} s'.format(_stall))
-    from base.pico.led import Led
-    led = Led()
-    ssid, password = _wifi()
-    reason = 'no Wi-Fi saved' if not ssid else None
-    if _take_setup_request() and not reason:
-        reason = 'asked for'
-    if reason:
-        Log.warn(TAG, 'Setup mode: {}'.format(reason))
-        from base.pico import setup
-        setup.run(product, led, device_name(), _save_setup, _fallback_for_s(), bool(ssid))  # ends with a reset
-    import sys
-    from base.device import Device
-    device = Device(product, sys.modules[__name__])
-    Log.level = device.settings.get('device', 'log_level')
-    Log.info(TAG, 'Name: {}'.format(device_name()))
-    from base.pico.wlan import Wlan
-    wlan = Wlan(ssid, password, device.settings, led, setup_mode, device_name(), trial=_trial() is not None,
-                give_up=_give_up, proven=_proven)
+    _files('prepare')  # sets device, led and wlan here, or runs setup mode, which ends with a reset
     try:
         asyncio.run(device.main())
     except KeyboardInterrupt:

@@ -6,6 +6,7 @@ import os
 import pytest
 
 import product
+from base import discovery
 from base import mqtt, pico
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -34,13 +35,13 @@ def test_the_topics_are_v1s():
 def test_the_sensor_entities_are_v1s():
     t = topics()
     for key in pico.SENSORS:
-        assert as_v1(mqtt.ha_sensor_payload('hall', t, product, key)) == v1()['ha_sensor_' + key], key
+        assert as_v1(discovery.sensor('hall', t, product, key)) == v1()['ha_sensor_' + key], key
 
 
 def test_the_motion_entities_are_v1s():
     t = topics()
     for _, key in product.HA_ENTITIES:
-        config = mqtt.ha_entity_payload('hall', t, product, key, product.ha_entity(None, key, t))
+        config = discovery.entity('hall', t, product, key, product.ha_entity(None, key, t))
         assert as_v1(config) == v1()['ha_' + key], key
 
 

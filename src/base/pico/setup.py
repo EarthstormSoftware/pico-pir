@@ -9,7 +9,7 @@ Wi-Fi chip with no route to the internet (local addresses still work), which onl
 import time
 import machine
 import network
-from base.compat import asyncio, json, sleep_ms
+from base.compat import asyncio, sleep_ms
 from base.log import Log
 from base.microdot import Microdot
 from base.pico.captivedns import CaptiveDNS
@@ -216,21 +216,6 @@ def run(product, led, name, save, for_s, have_wifi):
 
 
 def load(path):
-    """What provisioning.json holds ({"ssid", "password", "device_name"}, the password decrypted), or None."""
-    try:
-        with open(path) as f:
-            data = json.loads(f.read())
-    except (OSError, ValueError):
-        return None
-    if not isinstance(data, dict) or 'ssid' not in data:
-        return None
-    if 'password_iv' in data and 'password_enc' in data:
-        from base.pico.crypto import decrypt_password
-        try:
-            data['password'] = decrypt_password(data['password_iv'], data['password_enc'])
-        except Exception as e:  # another board's file, or a damaged one
-            Log.warn(TAG, "Couldn't decrypt the Wi-Fi password: {!r}".format(e))
-            return None
-    elif 'password' not in data:
-        return None
-    return data
+    """provisioning.json's network and name (base.pico.provisioned), as scripts on the PC ask for it."""
+    from base.pico import provisioned
+    return provisioned(path)

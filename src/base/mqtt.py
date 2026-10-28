@@ -19,7 +19,7 @@ Retained topics the device stops using (after a topic setting changes) are clear
 
 The client is the platform's (platform.mqtt_client): base.mqttclient on a Pi, mqtt_as on a Pico.
 """
-from base.compat import asyncio, json
+from base.compat import asyncio, json, release
 from base.log import Log
 from base.settings import Setting, is_bool, is_text
 
@@ -36,21 +36,8 @@ DEFAULT_PORT = 1883
 
 INFO_INTERVAL_S = 60
 
-MANUFACTURER = 'Earthstorm Software'
-
-# The health figures Home Assistant shows as diagnostic sensors, where the platform has them: (key, name, config)
-SENSORS = (
-    ('uptime_s', 'Uptime', {'device_class': 'duration', 'unit_of_measurement': 's',
-                            'state_class': 'total_increasing'}),
-    ('temperature_c', 'Temperature', {'device_class': 'temperature', 'unit_of_measurement': '°C',
-                                      'state_class': 'measurement'}),
-    ('load', 'Load', {'state_class': 'measurement', 'icon': 'mdi:gauge'}),
-    ('mem_free', 'Free memory', {'device_class': 'data_size', 'unit_of_measurement': 'B',
-                                 'state_class': 'measurement'}),
-    ('rssi', 'Wi-Fi signal', {'device_class': 'signal_strength', 'unit_of_measurement': 'dBm',
-                              'state_class': 'measurement'}),
-    ('ip', 'IP address', {}),
-)
+# The health figures Home Assistant can show (base.discovery describes them), where the platform has them
+SENSOR_KEYS = ('uptime_s', 'temperature_c', 'load', 'mem_free', 'rssi', 'ip')
 
 
 def _prefix_error(value, placeholder):
@@ -177,24 +164,10 @@ def retained(t):
 def info_payload(info):
     """The health figures from /api/info that the info topic carries."""
     payload = {'version': info['version']}
-    for key, _, _ in SENSORS:
+    for key in SENSOR_KEYS:
         if key in info:
             payload[key] = info[key]
     return json.dumps(payload)
-
-
-def _device(name, product):
-    d = {'identifiers': [name], 'name': name, 'manufacturer': getattr(product, 'MANUFACTURER', MANUFACTURER),
-         'model': getattr(product, 'MODEL', product.NAME), 'sw_version': product.VERSION}
-    return d
-
-
-def ha_entity_payload(name, t, product, key, config):
-    """A product's own entity: its config, with what every entity has (read from the state topic unless it says)."""
-    full = {'unique_id': name + '_' + key, 'state_topic': t.get('state'), 'availability_topic': t['status'],
-            'device': _device(name, product)}
-    full.update(config)
-    return json.dumps(full)
 
 
 def parse_set(text):
@@ -203,23 +176,6 @@ def parse_set(text):
     if not isinstance(command, dict) or not command:
         raise ValueError('a command must be a JSON object, such as {"enabled": false}')
     return command
-
-
-def ha_sensor_payload(name, t, product, key):
-    for k, title, extra in SENSORS:
-        if k == key:
-            config = {
-                'name': title,
-                'unique_id': name + '_' + key,
-                'state_topic': t['info'],
-                'value_template': '{{ value_json.' + key + ' }}',
-                'availability_topic': t['status'],
-                'entity_category': 'diagnostic',
-                'device': _device(name, product),
-            }
-            config.update(extra)
-            return json.dumps(config)
-    raise ValueError('unknown sensor')
 
 
 def failure(e):
@@ -251,7 +207,7 @@ class Mqtt:
         self.sensors = getattr(device.platform, 'SENSORS', None)
         if self.sensors is None:
             info = device.info()
-            self.sensors = tuple(key for key, _, _ in SENSORS if info.get(key) is not None)
+            self.sensors = tuple(key for key in SENSOR_KEYS if info.get(key) is not None)
         product = device.product
         self.product_state = self.light is None and hasattr(product, 'state')
         self.entities = getattr(product, 'HA_ENTITIES', ())
@@ -303,24 +259,30 @@ class Mqtt:
         t = self.topics
         await client.publish(t['status'], ONLINE, retain=True)
         await self._clear_retired(client)
-        # With discovery off, an empty retained config removes any earlier one from Home Assistant
-        await self._up_light(client)
-        if self.product_state:
-            await client.subscribe(t['set'])
-        for component, key in self.entities:
-            await client.publish(t['ha_' + key], ha_entity_payload(
-                self.name, t, self.device.product, key, self.device.product.ha_entity(self.device, key, t))
-                if self.ha else '', retain=True)
-        for topic in self._product_topics():
-            await client.subscribe(topic)
-        await self._up_group(client)
-        for key in self.sensors:
-            await client.publish(t['ha_sensor_' + key], ha_sensor_payload(self.name, t, self.device.product, key)
-                                 if self.ha else '', retain=True)
+        # With discovery off, an empty retained config removes any earlier one from Home Assistant. The discovery
+        # code is only needed now, so it's let go again afterwards
+        from base import discovery
+        try:
+            await self._up_light(client, discovery)
+            if self.product_state:
+                await client.subscribe(t['set'])
+            product = self.device.product
+            for component, key in self.entities:
+                await client.publish(t['ha_' + key], discovery.entity(
+                    self.name, t, product, key, product.ha_entity(self.device, key, t)) if self.ha else '', retain=True)
+            for topic in self._product_topics():
+                await client.subscribe(topic)
+            await self._up_group(client)
+            for key in self.sensors:
+                await client.publish(t['ha_sensor_' + key], discovery.sensor(self.name, t, product, key)
+                                     if self.ha else '', retain=True)
+        finally:
+            del discovery
+            release('base.discovery')
         await self._send_info(client)
         self._changed.set()  # the state, now it's connected
 
-    async def _up_light(self, client):
+    async def _up_light(self, client, discovery):
         pass
 
     async def _up_group(self, client):
