@@ -236,10 +236,11 @@ foreach ($file in @(Get-ChildItem -Path $wwwDir -File)) {
 }
 
 # App Base (src/base, a copy made by App Base's update-base.ps1) goes to /base, as it is in src/, but for what's
-# only for a Pi (pi.py, mqttclient.py) and otaboot, which goes to the root: like main.py it's only updated over USB.
+# only for a Pi (pi.py, piweb.py, mqttclient.py) and otaboot, which goes to the root: like main.py it's only updated
+# over USB.
 $baseDir = Join-Path $srcDir 'base'
 $buildBaseDir = Join-Path $buildDir 'base'
-$baseSkip = @('pi.py', 'mqttclient.py', 'pico/otaboot.py')
+$baseSkip = @('pi.py', 'piweb.py', 'mqttclient.py', 'pico/otaboot.py')
 $baseModules = @(Get-ChildItem -Path $baseDir -Recurse -Filter '*.py' -File | Where-Object { $_.FullName -notmatch '__pycache__' } |
     ForEach-Object { $_.FullName.Substring($baseDir.Length + 1).Replace('\', '/') } | Where-Object { $_ -notin $baseSkip })
 if (Test-Path $buildBaseDir) {

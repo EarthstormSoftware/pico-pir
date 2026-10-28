@@ -32,12 +32,13 @@ class Device:
         self.product = product
         self.platform = platform
         is_light = hasattr(product, 'LIGHT_MODES')
-        from base.mqtt import MQTT_SETTINGS, LIGHT_MQTT_SETTINGS
+        from base.mqtt import MQTT_SETTINGS
         # The platform's after the base's (a Pico's MQTT password replaces the base's), and the product's last
         schemas = [BASE_SETTINGS, MQTT_SETTINGS, getattr(platform, 'SETTINGS', {}), product.SETTINGS]
         if is_light:
             from base.light import LIGHT_SETTINGS
             from base.schedule import schedule_settings
+            from base.lightmqtt import LIGHT_MQTT_SETTINGS
             schemas[1:1] = [LIGHT_SETTINGS, schedule_settings(('Colour',) + tuple(product.LIGHT_MODES)),
                             LIGHT_MQTT_SETTINGS]
         self.settings = Settings(platform.state_path('config.json'), merge(*schemas),
@@ -49,7 +50,10 @@ class Device:
             from base.light import Light
             self.light = Light(product.output(self), self.settings, product.LIGHT_MODES, product)
         self.mqtt = None  # until it's made, as making it asks info() which figures there are
-        from base.mqtt import Mqtt
+        if is_light:
+            from base.lightmqtt import LightMqtt as Mqtt
+        else:
+            from base.mqtt import Mqtt
         self.mqtt = Mqtt(self)
 
     def info(self):

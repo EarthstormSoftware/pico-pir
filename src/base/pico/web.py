@@ -11,15 +11,17 @@
 """
 from base.compat import asyncio
 from base.log import Log
-from base.microdot import Request
+from base.compat import json
+from base.microdot import Request, Response
 
 TAG = 'HTTP'
 
 
 def routes(app, device):
     from base import pico as platform
-    # Larger bodies (update files) are streamed rather than held in memory
-    Request.max_body_length = 8192
+    # Bodies over 1 KB (update files) are streamed in small pieces: a Pico's heap is too fragmented for one block of
+    # several KB
+    Request.max_body_length = 1024
     Request.max_content_length = 64 * 1024
 
     def body(request):
@@ -90,8 +92,19 @@ def routes(app, device):
         if no:
             return no
         from base.pico import ota
-        return {'version': device.product.VERSION, 'mpy': ota.mpy_version(), 'free': ota.free_bytes(),
-                'state': ota.state(), 'files': ota.installed_files()}
+        files = ota.installed_files()
+        head = json.dumps({'version': device.product.VERSION, 'mpy': ota.mpy_version(), 'free': ota.free_bytes(),
+                           'state': ota.state()})
+
+        async def answer():
+            # A file at a time, rather than the whole answer (some KB) as one block
+            yield head[:-1] + ', "files": {'
+            first = True
+            for path, value in files.items():
+                yield ('' if first else ', ') + json.dumps(path) + ': ' + json.dumps(value)
+                first = False
+            yield '}}'
+        return Response(body=answer(), headers={'Content-Type': 'application/json'})
 
     @app.post('/api/update/begin')
     async def update_begin(request):

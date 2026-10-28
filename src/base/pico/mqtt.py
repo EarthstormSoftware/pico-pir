@@ -2,7 +2,8 @@
 
 base.mqtt connects again by itself when a connection drops, so mqtt_as's own reconnecting is turned off, and Wi-Fi is
 left to base.pico.wlan. Its publish and subscribe wait for the connection to come back; these fail at once instead
-(OSError), as base.mqtt expects.
+(OSError), as base.mqtt expects. Messages come through mqtt_as's callback, kept here up to queue_len of them: its own
+queue, at a length of 1, marks itself empty as a message goes in, so only a reader already waiting on it sees one.
 """
 from base.compat import sleep_ms
 
@@ -31,9 +32,17 @@ class Client:
         import mqtt_as
         config = dict(mqtt_as.config)
         config.update(client_id=client_id, server=host, port=port, user=user, password=password, clean=clean,
-                      queue_len=max(1, queue_len), will=(will[0], will[1], will[2], 0) if will else None)
+                      queue_len=0, subs_cb=self._received,
+                      will=(will[0], will[1], will[2], 0) if will else None)
         self._base = mqtt_as.MQTT_base
         self._client = _client_class()(config)
+        self._messages = []
+        self._limit = max(1, queue_len)
+
+    def _received(self, topic, message, retained, *properties):
+        self._messages.append((topic, message, retained))
+        if len(self._messages) > self._limit:
+            del self._messages[0]  # the oldest goes, as mqtt_as's queue would drop it
 
     async def connect(self):
         await self._client.connect()
@@ -50,10 +59,9 @@ class Client:
 
     async def message(self):
         """The next (topic, message, retained) received, as text, or None once the connection has dropped."""
-        queue = self._client.queue
         while True:
-            if queue._ri != queue._wi:
-                topic, message, retained = await queue.__anext__()
+            if self._messages:
+                topic, message, retained = self._messages.pop(0)
                 try:
                     return topic.decode(), message.decode(), retained
                 except UnicodeError:

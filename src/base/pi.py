@@ -233,6 +233,12 @@ async def watchdog():
         await asyncio.sleep(WATCHDOG_EVERY_S)
 
 
+def routes(app, device):
+    """What the app asks of the OS, as routes (base.piweb)."""
+    from base import piweb
+    piweb.routes(app, device)
+
+
 def mqtt_client(**options):
     from base.mqttclient import Client
     return Client(**options)
