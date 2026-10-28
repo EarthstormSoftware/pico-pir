@@ -1,8 +1,12 @@
 """Wi-Fi: joins the saved network, and joins again when it drops.
 
 The Wi-Fi fallback (wlan.fallback): if Wi-Fi hasn't connected once since the board started for wlan.fallback_after_min
-minutes, it restarts into setup mode, which runs for wlan.fallback_for_min and then restarts on the saved settings, so a
-router that was just slow to start is joined then. Off, it keeps trying.
+minutes (6 hours by default, so a router that's slow back after a power cut is waited for), it restarts into setup
+mode, which runs for wlan.fallback_for_min and then restarts on the saved settings. Off, it keeps trying.
+
+A network that's new (just set on the page or in setup mode) is on trial: if it hasn't connected within TRIAL_S, the
+platform's give_up() is called (the page's change goes back to the network before; setup mode's starts setup mode
+again), whatever the fallback's settings. Once it connects, the platform's proven() is.
 """
 import time
 import network
@@ -13,17 +17,21 @@ TAG = 'WLAN'
 
 # cyw43 link status 2: associated, waiting for DHCP. The network module has no constant for it.
 STAT_NOIP = 2
+TRIAL_S = 300
 
 INACTIVE, CONNECTING, CONNECTED, WAITING = 0, 1, 2, 3
 
 
 class Wlan:
-    def __init__(self, ssid, password, settings, led, setup_mode, hostname):
+    def __init__(self, ssid, password, settings, led, setup_mode, hostname, trial=False, give_up=None, proven=None):
         self.ssid = ssid
         self.password = password
         self.settings = settings  # read where used: wlan.connect_timeout, reconnect_wait, max_retries, fallback...
         self.led = led
         self.setup_mode = setup_mode  # restarts into setup mode
+        self.trial = trial  # a new network, on trial (see above)
+        self.give_up = give_up
+        self.proven = proven
         self.state = INACTIVE
         self.was_connected = False
         self.ever_connected = False
@@ -70,6 +78,8 @@ class Wlan:
         self.state = CONNECTED
         if not self.was_connected:
             self.led.set(True)
+            if self.trial and not self.ever_connected and self.proven is not None:
+                self.proven()
             self.was_connected = self.ever_connected = True
             self.retries = 0
             self.connected_at = time.time()
@@ -96,15 +106,23 @@ class Wlan:
     def fallback_due(self, now):
         """Whether it's time for setup mode: the fallback on, and no connection since the board started for
         fallback_after_min minutes (or no more attempts allowed)."""
-        if not self._get('fallback') or self.ever_connected:
+        if self.ever_connected:
+            return False
+        if self.trial:
+            return now - self.started >= TRIAL_S
+        if not self._get('fallback'):
             return False
         return now - self.started >= self._get('fallback_after_min') * 60 or not self.can_retry()
 
     def _failed(self, reason):
         if self.fallback_due(time.time()):
-            Log.error(TAG, '{}, and no connection since the board started ({} attempts): restarting into setup '
-                           'mode'.format(reason, self.retries))
-            self.setup_mode()
+            if self.trial and self.give_up is not None:
+                Log.error(TAG, "{}: the new network {} hasn't connected in {} s".format(reason, self.ssid, TRIAL_S))
+                self.give_up()
+            else:
+                Log.error(TAG, '{}, and no connection since the board started ({} attempts): restarting into setup '
+                               'mode'.format(reason, self.retries))
+                self.setup_mode()
         if self.can_retry():
             self._disconnected(True)
         else:
@@ -140,3 +158,25 @@ class Wlan:
             elif self.state == INACTIVE and self.can_retry():
                 self.connect()
             await sleep_ms(200)
+
+
+def strongest(scan):
+    """The network names in a scan, strongest first, each once, without hidden ones."""
+    seen = {}
+    for result in scan:
+        ssid = result[0].decode('utf-8', 'ignore').strip()
+        if ssid and (ssid not in seen or result[3] > seen[ssid]):
+            seen[ssid] = result[3]
+    return sorted(seen, key=lambda s: seen[s], reverse=True)
+
+
+def networks():
+    """The networks in range, strongest first. Blocks for a second or two while the radio scans."""
+    sta = network.WLAN(network.STA_IF)
+    was_active = sta.active()
+    sta.active(True)
+    try:
+        return strongest(sta.scan())
+    finally:
+        if not was_active:
+            sta.active(False)

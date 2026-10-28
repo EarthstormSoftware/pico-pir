@@ -25,9 +25,13 @@ holds what's Pico PIR's own: the sensor, its settings, its MQTT state and comman
   5 seconds** while it's running (the LED flashes quickly while it's held), or use **Change Wi-Fi** on the Network
   tab. Don't hold BOOTSEL while plugging in: that starts the USB bootloader instead. Either way it keeps its saved
   settings until new ones are submitted, and if setup mode times out it carries on with them.
-- The Wi-Fi fallback: if Wi-Fi hasn't connected since the start for 5 minutes, the device restarts into setup mode by
-  itself, for 10 minutes, then tries Wi-Fi again. Both times, and whether it does this at all, are on the Network tab
-  (`wlan.fallback`, `wlan.fallback_after_min`, `wlan.fallback_for_min`; `GET` and `POST /api/wifi`).
+- Changing Wi-Fi from the page: the Network tab scans for networks (or takes a hidden one's name) and the password.
+  The device restarts onto the new network on trial: if it can't connect within 5 minutes, it goes back to the one it
+  had. A network set in setup mode is on the same trial, and goes back to setup mode.
+- The Wi-Fi fallback: if Wi-Fi hasn't connected since the start for 6 hours (up to a day can be set, as a router can
+  be slow back after a power cut), the device restarts into setup mode by itself, for 10 minutes, then tries Wi-Fi
+  again. Both times, and whether it does this at all, are on the Network tab (`wlan.fallback`,
+  `wlan.fallback_after_min`, `wlan.fallback_for_min`; `GET` and `POST /api/wifi`).
 - Web UI and JSON HTTP API on port 80. The Status tab shows motion now, the last motion and the last 10
   detections (when each started and cleared) beside the firmware version, uptime, time, free memory, Wi-Fi and
   MQTT, all from `/api/info`; the other tabs hold the settings, the sensor's on the Device tab. An optional web password (Device tab) protects

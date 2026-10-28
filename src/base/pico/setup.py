@@ -13,22 +13,13 @@ from base.compat import asyncio, json, sleep_ms
 from base.log import Log
 from base.microdot import Microdot
 from base.pico.captivedns import CaptiveDNS
+from base.pico.wlan import networks
 
 TAG = 'SETUP'
 
 
 def escape(text):
     return str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
-
-
-def strongest(scan):
-    """The network names in a scan, strongest first, each once, without hidden ones."""
-    seen = {}
-    for result in scan:
-        ssid = result[0].decode('utf-8', 'ignore').strip()
-        if ssid and (ssid not in seen or result[3] > seen[ssid]):
-            seen[ssid] = result[3]
-    return sorted(seen, key=lambda s: seen[s], reverse=True)
 
 
 def form(product, networks, name, error=None, ssid=None):
@@ -89,12 +80,7 @@ class Setup:
 
     def scan(self):
         try:
-            sta = network.WLAN(network.STA_IF)
-            was_active = sta.active()
-            sta.active(True)
-            self.networks = strongest(sta.scan())
-            if not was_active:
-                sta.active(False)
+            self.networks = networks()
             Log.info(TAG, 'Found {} networks'.format(len(self.networks)))
         except Exception as e:
             Log.warn(TAG, 'Scanning failed: {}'.format(e))

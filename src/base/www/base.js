@@ -621,8 +621,39 @@ var Base = (function () {
         el('wifi_fallback_enabled').checked = w.fallback.enabled;
         el('wifi_fallback_after').value = w.fallback.after_minutes;
         el('wifi_fallback_for').value = w.fallback.for_minutes;
+        // Changing the network here, where the device can (a Pico): otherwise it's setup mode's
+        document.querySelectorAll('[data-wifi-change]').forEach(function (n) { n.hidden = !w.change; });
+        document.querySelectorAll('[data-wifi-setup]').forEach(function (n) { n.hidden = !!w.change; });
+        if (w.change && el('wifi_current')) el('wifi_current').textContent = w.ssid || 'none';
       }).catch(function (e) { say('wifi_msg', 'Could not load the Wi-Fi settings: ' + e.message); });
     });
+    // The network: chosen from a scan (wifi_scan fills wifi_network) or typed (wifi_network_other, for a hidden one),
+    // with wifi_password, and changed by wifi_change: the device restarts onto it, and goes back to the network it
+    // had if the new one doesn't connect within a few minutes
+    if (el('wifi_change')) {
+      el('wifi_scan').addEventListener('click', function () {
+        say('wifi_change_msg', 'Looking for networks…', true);
+        api('/api/wifi/networks').then(function (r) {
+          var select = el('wifi_network');
+          select.textContent = '';
+          r.networks.forEach(function (n) { select.appendChild(mk('option', { value: n, text: n })); });
+          say('wifi_change_msg', r.networks.length + ' network(s) found.', true);
+        }).catch(function (e) { say('wifi_change_msg', 'Could not scan: ' + e.message); });
+      });
+      el('wifi_change').addEventListener('click', function () {
+        var ssid = el('wifi_network_other').value.trim() || el('wifi_network').value;
+        if (!ssid) { say('wifi_change_msg', 'Choose a network (Scan), or type its name.'); return; }
+        if (!confirm('Change to ' + ssid + '? The device restarts onto it. If it can’t connect within 5 minutes, ' +
+          'it goes back to the network it has now.')) return;
+        say('wifi_change_msg', 'Saving…', true);
+        api('/api/wifi', { network: { ssid: ssid, password: el('wifi_password').value } }).then(function () {
+          el('wifi_password').value = '';
+          say('wifi_change_msg', 'Saved: restarting onto ' + ssid + '. If it’s on another network, this page won’t ' +
+            'come back here; if it can’t connect, the device goes back to the network it had.', true);
+          waitForRestart(el('wifi_change_msg'));
+        }).catch(function (e) { say('wifi_change_msg', 'Not changed: ' + e.message); });
+      });
+    }
     el('wifi_save').addEventListener('click', function () {
       say('wifi_msg', 'Saving…', true);
       api('/api/wifi', { fallback: {

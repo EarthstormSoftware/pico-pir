@@ -193,7 +193,7 @@ def wifi_fallback():
 
 
 def set_wifi_fallback(enabled, after_minutes, for_minutes):
-    """Used from the Pi's next start. The OS checks the limits (1-60 and 5-120 minutes)."""
+    """Used from the Pi's next start. The OS checks the limits (1-1440 and 5-120 minutes)."""
     _need_setup()
     _request('wifi-fallback', 'on' if enabled else 'off', str(int(after_minutes)), str(int(for_minutes)))
 

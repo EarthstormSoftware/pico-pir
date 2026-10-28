@@ -1,17 +1,19 @@
 """A Pico's own routes, next to the base's (base.web):
 
   POST /api/name                 {"name"}: the device's name, from the next start
-  GET, POST /api/wifi            {"fallback": {"enabled", "after_minutes", "for_minutes"}}: the Wi-Fi fallback, as on a Pi
-  POST /api/setup-mode           {"confirm": true}: restarts into setup mode (to change the Wi-Fi network)
+  GET, POST /api/wifi            {"fallback": {"enabled", "after_minutes", "for_minutes"}}: the Wi-Fi fallback, as on a
+                                 Pi; and {"network": {"ssid", "password"}}: a new network, which restarts onto it, on
+                                 trial (back to the one before if it doesn't connect). GET also has the network now
+  GET /api/wifi/networks         the networks in range, strongest first (a scan: a second or two)
+  POST /api/setup-mode           {"confirm": true}: restarts into setup mode
   POST /api/factory-reset        {"confirm": true}: forgets the settings, the name and the Wi-Fi, then setup mode
   GET /api/update                the firmware files (with SHA-256), MicroPython's .mpy version, free space and the last
                                  update's state; then POST /api/update/begin (a manifest), PUT /api/update/file/<path>
                                  for each file, and POST /api/update/commit, which restarts to apply it (see ota.py).
                                  Only with a web password set: replacing the firmware is more than changing a setting.
 """
-from base.compat import asyncio
+from base.compat import asyncio, json
 from base.log import Log
-from base.compat import json
 from base.microdot import Request, Response
 
 TAG = 'HTTP'
@@ -52,21 +54,35 @@ def routes(app, device):
     @app.get('/api/wifi')
     async def wifi(request):
         s = device.settings
-        return {'available': True, 'fallback': {'enabled': s.get('wlan', 'fallback'),
-                                                'after_minutes': s.get('wlan', 'fallback_after_min'),
-                                                'for_minutes': s.get('wlan', 'fallback_for_min')}}
+        return {'available': True, 'change': True, 'ssid': platform.wlan.ssid if platform.wlan else None,
+                'fallback': {'enabled': s.get('wlan', 'fallback'), 'after_minutes': s.get('wlan', 'fallback_after_min'),
+                             'for_minutes': s.get('wlan', 'fallback_for_min')}}
+
+    @app.get('/api/wifi/networks')
+    async def wifi_networks(request):
+        from base.pico.wlan import networks
+        return {'networks': networks()}
 
     @app.post('/api/wifi')
     async def set_wifi(request):
-        data = body(request).get('fallback')
-        if not isinstance(data, dict):
-            return {'success': False, 'error': 'fallback needs enabled, after_minutes and for_minutes'}, 400
-        error, _ = device.settings.update({'wlan': {'fallback': data.get('enabled') is True,
-                                                    'fallback_after_min': data.get('after_minutes'),
-                                                    'fallback_for_min': data.get('for_minutes')}})
+        data = body(request)
+        fallback, network = data.get('fallback'), data.get('network')
+        if not isinstance(fallback, dict) and not isinstance(network, dict):
+            return {'success': False, 'error': 'Send fallback ({"enabled", "after_minutes", "for_minutes"}) or '
+                                               'network ({"ssid", "password"})'}, 400
+        if isinstance(fallback, dict):
+            error, _ = device.settings.update({'wlan': {'fallback': fallback.get('enabled') is True,
+                                                        'fallback_after_min': fallback.get('after_minutes'),
+                                                        'fallback_for_min': fallback.get('for_minutes')}})
+            if error:
+                return {'success': False, 'error': error}, 400
+        if not isinstance(network, dict):
+            return {'success': True}
+        error = platform.change_wifi(network.get('ssid'), network.get('password') or '')
         if error:
             return {'success': False, 'error': error}, 400
-        return {'success': True}
+        asyncio.create_task(device.restart_soon())
+        return {'success': True, 'restarting': True}
 
     @app.post('/api/setup-mode')
     async def setup_mode(request):

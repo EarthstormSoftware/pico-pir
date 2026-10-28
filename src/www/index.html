@@ -183,16 +183,38 @@ form:has(#mqtt_enabled:checked) .mqtt-off{display:none}
 <div class="pane" id="pn">
   <div data-os-setup hidden>
     <div class="sec">Wi-Fi Network</div>
-    <p class="note">The network is changed in setup mode: the device restarts with its PicoPIR-SETUP hotspot and a page
-      at http://192.168.4.1 (holding BOOTSEL for 5 s does the same), for as long as set below, then carries on with
-      its settings unless new ones are saved there.</p>
-    <div class="buttons">
-      <button type="button" class="btn-full quiet" data-setup-mode data-msg="wifi_msg" data-confirm="Restart into setup mode? This page goes away until the device is back.">Change Wi-Fi…</button>
+    <div data-wifi-change hidden>
+      <p class="note">Connected to <b id="wifi_current">&hellip;</b>. A new network is used after a restart, on trial:
+        if it can't connect within 5 minutes, the device goes back to this one.</p>
+      <div class="frow">
+        <div class="field"><label for="wifi_network">Network</label>
+          <select id="wifi_network"><option value="">Scan to list them</option></select>
+        </div>
+        <div class="field"><label for="wifi_network_other">Or type its name</label>
+          <input type="text" id="wifi_network_other" maxlength="32" placeholder="a hidden network" autocomplete="off" spellcheck="false" autocapitalize="off">
+        </div>
+      </div>
+      <div class="frow">
+        <div class="field"><label for="wifi_password">Password</label>
+          <input type="password" id="wifi_password" maxlength="64" placeholder="empty for an open network" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="buttons">
+        <button type="button" class="btn-full quiet" id="wifi_scan">Scan</button>
+        <button type="button" class="btn-full" id="wifi_change">Change Wi-Fi</button>
+      </div>
+      <p class="msg" id="wifi_change_msg" role="status" aria-live="polite"></p>
     </div>
+    <p class="note">Setup mode is the other way, with no network to reach this page: the device's PicoPIR-SETUP
+      hotspot and a page at http://192.168.4.1. Holding BOOTSEL for 5 s starts it, as does the fallback below.</p>
+    <div class="buttons">
+      <button type="button" class="btn-full quiet" data-setup-mode data-msg="wifi_msg" data-confirm="Restart into setup mode? This page goes away until the device is back.">Setup mode…</button>
+    </div>
+    <div class="sec">Wi-Fi Fallback</div>
     <label class="check"><input type="checkbox" id="wifi_fallback_enabled"> If Wi-Fi doesn't connect, go into setup mode by itself</label>
     <div class="frow">
-      <div class="field"><label for="wifi_fallback_after">After (minutes without a network)</label>
-        <input type="number" id="wifi_fallback_after" min="1" max="60" step="1">
+      <div class="field"><label for="wifi_fallback_after">After (minutes without a network, up to 1440: a day)</label>
+        <input type="number" id="wifi_fallback_after" min="1" max="1440" step="1">
       </div>
       <div class="field"><label for="wifi_fallback_for">For (minutes, then try Wi-Fi again)</label>
         <input type="number" id="wifi_fallback_for" min="5" max="120" step="1">

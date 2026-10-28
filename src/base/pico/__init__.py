@@ -9,6 +9,8 @@ old firmware can still read them if an update rolls back):
   provisioning.json   the Wi-Fi network and the name given in setup mode, the password encrypted
   device_name.json    the name set on the page, which wins over the others
   setup_request       setup mode at the next start (BOOTSEL held, the page, the Wi-Fi fallback), used once
+  wifi_trial          a new network on trial (see wlan.py): "page" (changed on the page, with the one before in
+                      provisioning.prev.json, put back if the new one doesn't connect) or "setup" (from setup mode)
 The product gives SETUP_SSID (the setup hotspot) and NAME_PREFIX (for the name made from the board's id).
 
 run(product), from the product's main.py (through app.py, which main.py imports), starts it all.
@@ -29,6 +31,8 @@ CONFIG = 'config.json'
 PROVISIONING = 'provisioning.json'
 NAME = 'device_name.json'
 SETUP_REQUEST = 'setup_request'
+WIFI_TRIAL = 'wifi_trial'
+PREVIOUS = 'provisioning.prev.json'
 CLOCK_SYNC_S = 6 * 3600  # the board's clock drifts a few seconds a day
 LOCAL_TIME_CHECK_S = 15  # so summer time starts and ends on time
 HEAP_LOG_S = 300
@@ -82,9 +86,10 @@ SETTINGS = {
         'connect_timeout': Setting(30, is_int(5, 300), restart=True),
         'reconnect_wait': Setting(30, is_int(5, 3600), restart=True),
         'max_retries': Setting(0, is_int(0, 1000), restart=True),
-        # The Wi-Fi fallback: setup mode when Wi-Fi hasn't connected since the start for so many minutes, for so many
+        # The Wi-Fi fallback: setup mode when Wi-Fi hasn't connected since the start for so many minutes (up to a day,
+        # as a router can be slow back after a power cut), for so many
         'fallback': Setting(True, is_bool),
-        'fallback_after_min': Setting(5, is_int(1, 60)),
+        'fallback_after_min': Setting(360, is_int(1, 1440)),
         'fallback_for_min': Setting(10, is_int(5, 120)),
     },
     'mqtt': {
@@ -263,7 +268,7 @@ def reset():
 def factory_reset():
     """Forgets the settings, the name and the Wi-Fi network, and restarts into setup mode."""
     device.reset()
-    _remove(PROVISIONING, SETUP_REQUEST)
+    _remove(PROVISIONING, SETUP_REQUEST, WIFI_TRIAL, PREVIOUS)
     Log.warn(TAG, 'Factory reset: settings and Wi-Fi forgotten')
     restart()
 
@@ -278,6 +283,8 @@ def _save_setup(name, ssid, password):
     try:
         write_atomically(path(PROVISIONING), json.dumps({'device_name': name, 'ssid': ssid, 'password_iv': iv,
                                                          'password_enc': encrypted}))
+        write_atomically(path(WIFI_TRIAL), 'setup')
+        _remove(PREVIOUS)
         config = _load(CONFIG)
         if config and isinstance(config.get('web'), dict) and config['web'].get('password_hash'):
             config['web']['password_hash'] = ''
@@ -287,6 +294,74 @@ def _save_setup(name, ssid, password):
         Log.error(TAG, "Couldn't save the settings: {}".format(e))
         return None
     return name
+
+
+def change_wifi(ssid, password):
+    """Saves a new Wi-Fi network (from the page), used from the next start, on trial: if it doesn't connect within
+    wlan.TRIAL_S, the network before is put back. Returns why it couldn't, or None."""
+    if not isinstance(ssid, str) or not 0 < len(ssid.strip()) <= 32:
+        return 'The network name must be 1-32 characters.'
+    if not isinstance(password, str) or len(password) > 64 or 0 < len(password) < 8:
+        return 'The password must be 8-64 characters (empty for an open network).'
+    from base.pico.crypto import encrypt_password
+    try:
+        with open(path(PROVISIONING)) as f:
+            before = f.read()
+    except OSError:
+        before = '{}'  # none: a config.json written by hand had the network
+    saved = _load(PROVISIONING) or {}
+    iv, encrypted = encrypt_password(password)
+    new = {'ssid': ssid.strip(), 'password_iv': iv, 'password_enc': encrypted}
+    if saved.get('device_name'):
+        new['device_name'] = saved['device_name']
+    if not _exists(WIFI_TRIAL):  # on trial already: the one before that is still the one that worked
+        write_atomically(path(PREVIOUS), before)
+    write_atomically(path(PROVISIONING), json.dumps(new))
+    write_atomically(path(WIFI_TRIAL), 'page')
+    Log.info(TAG, 'Wi-Fi changed to {}: from the next start, on trial'.format(new['ssid']))
+    return None
+
+
+def _exists(name):
+    import os
+    try:
+        os.stat(path(name))
+        return True
+    except OSError:
+        return False
+
+
+def _trial():
+    """'page' or 'setup' while a new network is on trial, else None."""
+    try:
+        with open(path(WIFI_TRIAL)) as f:
+            return f.read().strip() or 'setup'
+    except OSError:
+        return None
+
+
+def _proven():
+    _remove(WIFI_TRIAL, PREVIOUS)
+    Log.info(TAG, 'The new Wi-Fi network works')
+
+
+def _give_up():
+    """The new network didn't connect: the one before goes back (a change on the page), or setup mode again (a
+    network from setup mode, so it can be put right)."""
+    if _trial() == 'page':
+        try:
+            with open(path(PREVIOUS)) as f:
+                before = f.read()
+            if json.loads(before):
+                write_atomically(path(PROVISIONING), before)
+            else:
+                _remove(PROVISIONING)
+        except (OSError, ValueError):
+            pass
+        _remove(WIFI_TRIAL, PREVIOUS)
+        Log.warn(TAG, 'Back to the Wi-Fi network before')
+        restart()
+    setup_mode()
 
 
 def _take_setup_request():
@@ -434,7 +509,8 @@ def run(product_module):
     Log.level = device.settings.get('device', 'log_level')
     Log.info(TAG, 'Name: {}'.format(device_name()))
     from base.pico.wlan import Wlan
-    wlan = Wlan(ssid, password, device.settings, led, setup_mode, device_name())
+    wlan = Wlan(ssid, password, device.settings, led, setup_mode, device_name(), trial=_trial() is not None,
+                give_up=_give_up, proven=_proven)
     try:
         asyncio.run(device.main())
     except KeyboardInterrupt:
