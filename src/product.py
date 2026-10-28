@@ -89,6 +89,13 @@ def set(device, command):
     return error
 
 
+def scheduled(device, on):
+    """A schedule event: sensing on or off, as from the page."""
+    error, changed = device.settings.update({'sensor': {'enabled': on}})
+    if not error:
+        device.applied(changed)
+
+
 def applied(device, changed):
     # The sensor reads its settings on every poll; the state topic shows them
     if any(section == 'sensor' for section, _ in changed):

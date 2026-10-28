@@ -3,8 +3,9 @@ What an ApplPi app asks of the OS, as routes (the Pi platform's routes(), called
 last update's result), POST /api/update (a .tar of the app's folder: the OS installs it on trial and restarts the app
 with it), GET and POST /api/clock ({"time_zone", "ntp"}, and the zones to choose from) and POST /api/reboot
 ({"confirm": true}: restarts the Pi). With setup mode in the OS: GET and POST /api/wifi ({"fallback": {"enabled",
-"after_minutes", "for_minutes"}}: setup mode when Wi-Fi doesn't connect), POST /api/setup-mode and /api/factory-reset
-(each {"confirm": true}).
+"after_minutes", "for_minutes"}}: setup mode when Wi-Fi doesn't connect; and where the OS takes them, {"network":
+{"ssid", "password"}}: a new network, which the Pi restarts onto, on trial), GET /api/wifi/networks (a scan), POST
+/api/setup-mode and /api/factory-reset (each {"confirm": true}).
 """
 from base.compat import asyncio
 from base.log import Log
@@ -64,7 +65,9 @@ def routes(app, device):
         if not available:
             return {'success': False, 'error': 'Only on ApplPi OS v0.4 or later.' if do == platform.restart_device
                     else 'Only on ApplPi OS with setup mode (the release after v0.4).'}, 400
+        return after_answer(what, do)
 
+    def after_answer(what, do):
         async def later():
             await asyncio.sleep(0.5)  # the answer goes first
             Log.warn(TAG, what)
@@ -84,18 +87,45 @@ def routes(app, device):
         if not platform.os_setup():
             return {'available': False}
         try:
-            return {'available': True, 'fallback': platform.wifi_fallback()}
+            change = platform.os_wifi()
+            return {'available': True, 'change': change, 'ssid': platform.wifi_ssid() if change else None,
+                    'fallback': platform.wifi_fallback()}
+        except platform.RequestError as e:
+            return {'success': False, 'error': str(e)}, 400
+
+    @app.get('/api/wifi/networks')
+    async def wifi_networks(request):
+        try:
+            return {'networks': platform.wifi_networks()}
         except platform.RequestError as e:
             return {'success': False, 'error': str(e)}, 400
 
     @app.post('/api/wifi')
     async def set_wifi(request):
-        data = _json(request).get('fallback') or {}
-        try:
-            enabled, after, for_ = data['enabled'], int(data['after_minutes']), int(data['for_minutes'])
-        except (KeyError, TypeError, ValueError):
-            return {'success': False, 'error': 'fallback needs enabled, after_minutes and for_minutes'}, 400
-        return asked(lambda: platform.set_wifi_fallback(enabled is True, after, for_))
+        data = _json(request)
+        fallback, network = data.get('fallback'), data.get('network')
+        if not isinstance(fallback, dict) and not isinstance(network, dict):
+            return {'success': False, 'error': 'Send fallback ({"enabled", "after_minutes", "for_minutes"}) or '
+                                               'network ({"ssid", "password"})'}, 400
+        if isinstance(fallback, dict):
+            try:
+                enabled = fallback['enabled']
+                after, for_ = int(fallback['after_minutes']), int(fallback['for_minutes'])
+            except (KeyError, TypeError, ValueError):
+                return {'success': False, 'error': 'fallback needs enabled, after_minutes and for_minutes'}, 400
+            answer = asked(lambda: platform.set_wifi_fallback(enabled is True, after, for_))
+            if not isinstance(answer, dict):
+                return answer
+        if not isinstance(network, dict):
+            return {'success': True}
+        ssid, password = network.get('ssid'), network.get('password')
+        if not isinstance(ssid, str) or not isinstance(password, str):
+            return {'success': False, 'error': 'network needs ssid and password'}, 400
+        answer = asked(lambda: platform.change_wifi(ssid, password))
+        if not isinstance(answer, dict):
+            return answer
+        # The OS uses it from the next start: the answer goes first, then the Pi restarts onto it
+        return after_answer('Restarting the Pi onto a new Wi-Fi network', platform.restart_device)
 
     @app.post('/api/setup-mode')
     async def setup_mode(request):

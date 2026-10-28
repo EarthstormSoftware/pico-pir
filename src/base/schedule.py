@@ -7,9 +7,10 @@ minutes, as PlasmaStick's:
   {"days": [0, 1, 2, 3, 4, 5, 6], "at": "23:00", "action": "off"}
 
 days: 0 Monday ... 6 Sunday. at: "HH:MM" local time, "sunrise" or "sunset" (which need the location). mode and
-brightness are optional, for "on". The events are the light's (on, off, a mode, a brightness), done like any other
-change, so a group follows them. Once the clock is right after a start, the latest event's action is done, so a
-power cut doesn't leave the light wrong.
+brightness are optional, for "on". A light's events are the light's (on, off, a mode, a brightness), done like any
+other change, so a group follows them. Another product has a schedule if it says what on and off mean
+(scheduled(device, on): Pico PIR's sensing, say), without mode or brightness. Once the clock is right after a start,
+the latest event's action is done, so a power cut doesn't leave things wrong.
 
 The clock is the platform's: platform.local_time() gives (local seconds since 1970, or None until the clock is
 right). Settings: schedule.events, schedule.latitude and schedule.longitude.
@@ -140,9 +141,12 @@ def latest(events, now, offset, lat, lon):
     return past[-1] if past else None
 
 
-def run_event(light, ev):
+def run_event(device, ev):
     Log.info(TAG, '{} ({})'.format(ev['action'], ev['at']))
-    if ev['action'] == 'off':
+    light = device.light
+    if light is None:
+        device.product.scheduled(device, ev['action'] == 'on')
+    elif ev['action'] == 'off':
         light.set(on=False)
     else:
         light.set(on=True, mode=ev.get('mode'), brightness=ev.get('brightness'))
@@ -150,7 +154,7 @@ def run_event(light, ev):
 
 async def run(device):
     """Does the events as they come, once the clock is right; first catching up with the latest."""
-    settings, light, platform = device.settings, device.light, device.platform
+    settings, platform = device.settings, device.platform
     last, caught_up = None, False
     while True:
         now, offset = platform.local_time()
@@ -166,11 +170,11 @@ async def run(device):
                     ev = latest(events, now, offset, lat, lon)
                     if ev:
                         Log.info(TAG, 'Catching up after the start')
-                        run_event(light, ev)
+                        run_event(device, ev)
                     caught_up = True
                 else:
                     for ev in due(events, last, now, offset, lat, lon):
-                        run_event(light, ev)
+                        run_event(device, ev)
             except (KeyError, TypeError, ValueError) as e:  # an event edited by hand
                 Log.warn(TAG, 'Skipping an unusable event ({!r})'.format(e))
             last = max(last, now)

@@ -38,11 +38,13 @@ form:has(#mqtt_enabled:checked) .mqtt-off{display:none}
 <input type="radio" name="t" id="td" data-pane="pd" aria-label="Device tab">
 <input type="radio" name="t" id="tn" data-pane="pn" aria-label="Network tab">
 <input type="radio" name="t" id="tm" data-pane="pm" aria-label="MQTT tab">
+<input type="radio" name="t" id="ts" data-pane="ps" aria-label="Schedule tab">
 <nav>
   <label for="tst">Status</label>
   <label for="td">Device</label>
   <label for="tn">Network</label>
   <label for="tm">MQTT</label>
+  <label for="ts">Schedule</label>
 </nav>
 
 <!-- STATUS PANEL -->
@@ -301,6 +303,38 @@ form:has(#mqtt_enabled:checked) .mqtt-off{display:none}
   </form>
 </div>
 
+<!-- SCHEDULE PANEL -->
+<div class="pane" id="ps">
+  <form class="settings">
+    <div class="cols">
+    <div class="group">
+      <div class="sec">Clock</div>
+      <p class="note" id="clock_note"></p>
+      <p class="note">The time zone, summer time and time server are on the Device tab.</p>
+    </div>
+    <div class="group">
+      <div class="sec">Location</div>
+      <div class="frow">
+        <div class="field"><label for="latitude">Latitude</label>
+          <input type="number" name="schedule.latitude" id="latitude" min="-90" max="90" step="any" placeholder="e.g. 51.5">
+        </div>
+        <div class="field"><label for="longitude">Longitude</label>
+          <input type="number" name="schedule.longitude" id="longitude" min="-180" max="180" step="any" placeholder="e.g. -0.13">
+        </div>
+      </div>
+      <p class="note" id="sun_note">For sunrise and sunset events. East and north are positive.</p>
+    </div>
+    </div>
+    <div class="sec">Events</div>
+    <div id="events"></div>
+    <button type="button" class="reset" id="add_event">+ Add event</button>
+    <p class="note" style="margin-top:8px">Up to 8, each turning sensing on or off, as the Detect motion switch on the
+      Device tab does. After a restart the sensor does what the latest event said.</p>
+    <button type="submit" class="btn-full save" disabled>Save</button>
+    <p class="msg" role="status" aria-live="polite"></p>
+  </form>
+</div>
+
 <footer id="footer"></footer>
 </div>
 
@@ -373,6 +407,7 @@ Base.onInfo(function (i) {
   }
 });
 
+Base.schedule(['Sensing on', 'Sensing off']);
 Base.start();
 </script>
 </body>

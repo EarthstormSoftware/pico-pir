@@ -77,3 +77,12 @@ def test_other_commands_are_refused(command):
     device = Device()
     assert product.set(device, command)
     assert device.settings.values == {'enabled': True, 'clear_after_s': 15}
+
+
+def test_schedule_events_switch_sensing():
+    device = Device()
+    product.scheduled(device, False)
+    assert device.settings.values['enabled'] is False
+    product.scheduled(device, True)
+    assert device.settings.values['enabled'] is True
+    assert device.changed == [{('sensor', 'enabled')}, {('sensor', 'enabled')}]

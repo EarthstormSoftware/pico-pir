@@ -13,6 +13,7 @@ A product is a module (product.py) with:
   tasks(device)                 optional: coroutines to run alongside
   state(device)                 optional, not lights: its state for MQTT's state topic (call device.state_changed())
   set(device, command)          optional, not lights: a command from MQTT's set topic (a dict); returns an error or None
+  scheduled(device, on)         optional, not lights: what a schedule event does (base.schedule), so it has one
   HA_ENTITIES, ha_entity(device, key, topics)   optional: its own Home Assistant entities, as (component, key), and
                                 each one's discovery config (unique_id, availability and device are added)
   www                           optional: the folder with its index.html (default: www beside product.py)
@@ -35,6 +36,10 @@ class Device:
         from base.mqtt import MQTT_SETTINGS
         # The platform's after the base's (a Pico's MQTT password replaces the base's), and the product's last
         schemas = [BASE_SETTINGS, MQTT_SETTINGS, getattr(platform, 'SETTINGS', {}), product.SETTINGS]
+        self.scheduled = is_light or hasattr(product, 'scheduled')
+        if self.scheduled and not is_light:
+            from base.schedule import schedule_settings
+            schemas.insert(-1, schedule_settings(()))
         if is_light:
             from base.light import LIGHT_SETTINGS
             from base.schedule import schedule_settings
@@ -128,7 +133,7 @@ class Device:
         tasks.append(server)
         if hasattr(self.platform, 'serving'):
             asyncio.create_task(self.platform.serving(server))
-        if self.light is not None:
+        if self.scheduled:
             from base import schedule
             tasks.append(asyncio.create_task(schedule.run(self)))
         if self.mqtt.enabled:

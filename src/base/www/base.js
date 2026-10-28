@@ -474,9 +474,11 @@ var Base = (function () {
     return { act: act, expect: expect };
   }
 
-  // A light's schedule, as PlasmaStick's: the events (schedule.events, up to 8), the location for sunrise and sunset,
-  // and the clock, which on a Pi is the Pi's own
-  function schedule() {
+  // The schedule, as PlasmaStick's: the events (schedule.events, up to 8), the location for sunrise and sunset, and
+  // the clock, which on a Pi is the Pi's own. labels: what on and off are called (a light's: Turn on, Turn off); a
+  // device that isn't a light has no mode or brightness in its events
+  function schedule(labels) {
+    labels = labels || ['Turn on', 'Turn off'];
     var DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     var form = el('events').closest('form');
 
@@ -504,12 +506,13 @@ var Base = (function () {
       }
       when.addEventListener('change', showWhen);
       var action = options(mk('select', { 'aria-label': 'Action', 'data-k': 'action' }),
-        [['on', 'Turn on'], ['off', 'Turn off']], ev.action);
-      var modes = [['', 'Same mode']].concat((info ? info.light.modes : []).map(function (m) { return [m, m]; }));
+        [['on', labels[0]], ['off', labels[1]]], ev.action);
+      var lightless = !(info && info.light);
+      var modes = [['', 'Same mode']].concat((lightless ? [] : info.light.modes).map(function (m) { return [m, m]; }));
       var mode = options(mk('select', { 'aria-label': 'Mode', 'data-k': 'mode' }), modes, ev.mode || '');
       var bright = mk('input', { type: 'number', min: 1, max: 100, placeholder: '%', value: ev.brightness || '',
         'aria-label': 'Brightness (blank: unchanged)', 'data-k': 'brightness' });
-      function showAction() { mode.hidden = bright.hidden = action.value === 'off'; }
+      function showAction() { mode.hidden = bright.hidden = lightless || action.value === 'off'; }
       action.addEventListener('change', showAction);
       var row = mk('div', { className: 'event' }, [days, when, time, offset, offsetLabel, action, mode, bright]);
       row.appendChild(mk('button', { type: 'button', className: 'reset remove', text: 'Remove', onclick: function () {
