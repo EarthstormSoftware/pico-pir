@@ -7,12 +7,12 @@ It reports motion over MQTT, with Home Assistant discovery, and has a web page f
 It is built on [App Base](https://github.com/EarthstormSoftware/app-base), the code the Earthstorm devices share,
 kept as a copy in `src/base` (from App Base's `update-base.ps1 -Product src`, recorded in `src/base/VERSION`). Never
 edit the copy: `tests/test_base_copy.py` fails if it's changed. A fix to shared code goes into App Base, then a new copy
-is made here. PlasmaStick Controller moves onto the same base next.
+is made here and in PlasmaStick Controller, which is on the same base.
 
 ## Code Style
 - Target runtime is MicroPython on Raspberry Pi Pico W; prefer MicroPython modules and APIs (`uasyncio`, `ujson`, `network`, `machine`) over CPython equivalents, through `base.compat` where the base already wraps them.
 - Keep long-running workflows asynchronous and non-blocking. Controller loops should always yield (for example `await sleep_ms(...)`).
-- Follow existing logging pattern: module-level `TAG` plus `Log.info/warn/error/debug(...)` (`base.log`).
+- Follow existing logging pattern: module-level `TAG` plus `Log.info/warn/error/debug(...)` (`base.log`). Warnings and errors also go to the `<base>/log` MQTT topic.
 - Preserve existing module boundaries and naming conventions.
 
 ## Architecture
@@ -24,6 +24,11 @@ is made here. PlasmaStick Controller moves onto the same base next.
 - The topics and Home Assistant entities must stay 1.0's (`tests/ha_v1.json`), so Home Assistant keeps the device's history.
 - Configuration source of truth is `config.json` on the device. The repo only holds `config.example.json`; a local `config.json` is gitignored.
 - Roadmap: `docs/roadmap.md`.
+
+## Memory
+- Anything new loads only while it's used and is let go afterwards (`base.compat.release`), or costs a KB or two: a
+  change to App Base also has to fit a PlasmaStick in a group, which has about 40 KB free at rest and must stay above
+  35 KB. App Base's `pico-memory-reviewer` agent checks a change against that.
 
 ## Build And Test
 - There is no local build system. `tests/` has host-side pytest tests for pure logic (`py -m pytest`; `tests/conftest.py` stubs `machine`, `network`, `rp2` and the u-modules). Add tests there for new parsing/validation logic. Hardware and network behaviour is still verified on the device.

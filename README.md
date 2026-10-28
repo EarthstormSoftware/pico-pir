@@ -140,11 +140,14 @@ $env:PICOPIR_WEB_PASSWORD = '...'   # or leave it unset to be asked
 .\scripts\deploy.ps1 -WiFi stairs.local
 ```
 
-It sends only the files that changed, and the device restarts to apply them. The device must have a web password
+It sends only the files that changed (`wifi_update.py --all` sends every one), and the device restarts to apply
+them. The device reads the list of files a line at a time, so a long one needs no large block of memory, and there's
+flash for a whole new version beside the old one. The device must have a web password
 set; updates are refused without one. The new firmware is on trial until its web server is up: if it doesn't get
 that far within 3 minutes, twice, the device puts the previous files back by itself and reports the rollback in its
 log and at `GET /api/update`. `main.py` and `otaboot.py`, which apply updates and roll them back, are only ever
-updated over USB, as are settings and credentials, which an update never touches.
+updated over USB, as are settings and credentials, which an update never touches. Without USB, the `<base>/log` topic
+has the device's warnings and errors.
 
 ## Tests
 
@@ -200,6 +203,7 @@ With MQTT enabled (MQTT tab, or `mqtt` in `config.json`), the device uses these 
 | `<base>/status` | from the device, retained | `online` while connected. The broker sets `offline` (the MQTT will) if the device drops off |
 | `<base>/info` | from the device, retained | `{"version": "2.0.0", "uptime_s": 3600, "rssi": -58, "ip": "192.168.1.20", "mem_free": 86208}`: the device's health, as in `/api/info`, on connecting and every minute |
 | `<base>/state` | from the device, retained | `{"motion": false, "last": "2026-10-14T14:04:59+02:00", "last_end": "2026-10-14T14:05:06+02:00", "count": 3, "enabled": true, "clear_after_s": 15}`: on connecting and whenever any of it changes. `last` is when the latest movement started, `last_end` when the sensor last saw it (null while it's moving), without the clear time; `motion` clears `clear_after_s` after that. Times are null until the clock is set |
+| `<base>/log` | from the device | Its warnings and errors, a line each, as it logs them (not retained). While it's offline it keeps the last 8, and sends them when it's back, so the reason for a dropped connection arrives afterwards |
 | `<base>/set` | to the device | `{"enabled": false}` turns sensing off (`true` on again), `{"clear_after_s": 30}` sets the clear time (5-3600 s); either or both. Saved, as from the web page. Don't retain these: a retained command is ignored |
 
 With **Home Assistant discovery** turned on (`mqtt.ha_discovery`), the device publishes retained discovery configs
