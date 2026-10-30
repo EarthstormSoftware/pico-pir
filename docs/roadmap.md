@@ -44,13 +44,13 @@ The room is left unset; it is set in Home Assistant.
 ## 6. Onto App Base (2.0, on the device; not yet released)
 
 The code it shares with PlasmaStick moves into [App Base](https://github.com/EarthstormSoftware/app-base), which
-ApplPi apps use too, so a fix is made once (App Base's roadmap, step 2). Pico PIR keeps the sensor, its settings, its
+Juggle apps use too, so a fix is made once (App Base's roadmap, step 2). Pico PIR keeps the sensor, its settings, its
 state and commands and its page; the base does the rest, from a copy in `src/base`.
 
 - The same topics and Home Assistant entities as 1.0 (checked against what 1.0 publishes, `tests/ha_v1.json`), and
   the same files on the board (`config.json` in 1.0's layout, `provisioning.json`, `device_name.json`), so a device
   carries on as it was, and 1.0 can still read them if the update rolls back.
-- The Wi-Fi fallback becomes three settings (on or off, after how many minutes, for how many), as on ApplPi OS, and
+- The Wi-Fi fallback becomes three settings (on or off, after how many minutes, for how many), as on Juggle OS, and
   the Network tab can start setup mode. A factory reset is `/api/factory-reset`.
 - 1.0.1 first, only so a 1.0.0 device's updater may write App Base's folders: then 2.0 goes over Wi-Fi.
 - Then: the schedule (sensing on or off at set times), from App Base. (Done.)
