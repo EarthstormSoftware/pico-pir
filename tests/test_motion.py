@@ -63,20 +63,32 @@ def test_a_shorter_clear_time_applies_at_once(tracker):
     assert feed(tracker, [(t + 6000, 0)], clear_after_s=5) == [(t + 6000, CLEAR)]
 
 
-class Config:
-    pir_pin = 22
+class Device:
+    """The settings the sensor reads, and the state changes it reports."""
 
-    class sensorconfig:
-        enabled = True
-        clear_after_s = 30
+    def __init__(self):
+        self.values = {('device', 'pir_pin'): 22, ('sensor', 'enabled'): True, ('sensor', 'clear_after_s'): 30}
+        self.settings = self
+        self.changes = 0
+
+    def get(self, section, key):
+        return self.values[(section, key)]
+
+    def state_changed(self):
+        self.changes += 1
 
 
 @pytest.fixture
 def sensor():
     from motion import MotionSensor
-    s = MotionSensor(Config())
+    s = MotionSensor(Device())
     s.tracker = MotionTracker(0)
     return s
+
+
+def test_motion_and_clear_are_reported(sensor):
+    detect(sensor, SETTLED, 3000, 1000)
+    assert sensor.device.changes == 2
 
 
 def detect(sensor, start_ms, high_ms, wall):
@@ -88,17 +100,18 @@ def detect(sensor, start_ms, high_ms, wall):
     return end
 
 
-def test_detections_are_kept_newest_first_with_their_start_and_end(sensor):
+def test_detections_are_kept_newest_first_with_their_start_movement_and_clear(sensor):
     end = detect(sensor, SETTLED, 3000, 1000)
     detect(sensor, end + 10000, 3000, 2000)
     info = sensor.info()
-    assert info['recent'] == [[2000, 2032], [1000, 1032]]
+    # Moved for 3 s; cleared 30 s (the clear time) after that
+    assert info['recent'] == [[2000, 2003, 2032], [1000, 1003, 1032]]
     assert info['last'] == 2000 and info['count'] == 2 and not info['active']
 
 
 def test_a_detection_still_going_has_no_end(sensor):
     sensor.poll(1, SETTLED, 5000)
-    assert sensor.info()['recent'] == [[5000, None]]
+    assert sensor.info()['recent'] == [[5000, None, None]]
     assert sensor.info()['active']
 
 
@@ -117,8 +130,24 @@ def test_detection_times_move_with_the_clock(sensor):
     end = detect(sensor, SETTLED, 3000, 60)
     sensor.poll(1, end + 1000, 200)
     sensor.shift_clock(1000)
-    assert sensor.info()['recent'] == [[1200, None], [1060, 1092]]
+    assert sensor.info()['recent'] == [[1200, None, None], [1060, 1063, 1092]]
 
 
 def test_no_detections_yet(sensor):
     assert sensor.info()['last'] is None and sensor.info()['recent'] == []
+
+
+def test_movement_lasts_until_the_sensor_last_goes_low(sensor):
+    # High, low, high again within the clear time: one detection, moving until the second low
+    for ms, level in ((0, 1), (2000, 0), (6000, 1), (9000, 0)):
+        sensor.poll(level, SETTLED + ms, 3000 + ms // 1000)
+    assert sensor.info()['recent'] == [[3000, 3009, None]]
+    sensor.poll(1, SETTLED + 10000, 3010)
+    assert sensor.info()['recent'] == [[3000, None, None]]  # moving now
+
+
+def test_switching_sensing_off_while_moving_ends_the_movement_then(sensor):
+    sensor.poll(1, SETTLED, 4000)
+    sensor.device.values[('sensor', 'enabled')] = False
+    sensor.poll(1, SETTLED + 5000, 4005)
+    assert sensor.info()['recent'] == [[4000, 4005, 4005]]

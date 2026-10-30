@@ -3,11 +3,12 @@
 Pico PIR is MicroPython firmware for a Raspberry Pi Pico W with a PIR motion sensor (an HC-SR501 or similar). It
 reports to an MQTT broker, with Home Assistant discovery, and has a built-in web page for its status and settings.
 
-It is built from [PlasmaStick Controller](https://github.com/EarthstormSoftware/plasmastick-controller) and shares
-its Wi-Fi setup, web server, settings, MQTT connection, clock, watchdog and Wi-Fi updates.
+From 2.0 it's built on App Base, the code the Earthstorm devices share (`src/base`, a copy): the web page and API,
+settings, MQTT and Home Assistant, and on a Pico its Wi-Fi, setup mode, clock, watchdog and Wi-Fi updates. This repo
+holds what's Pico PIR's own: the sensor, its settings, its MQTT state and commands, and its page.
 
-> **Status:** step 1 of the [roadmap](docs/roadmap.md), the base, is done: the device joins Wi-Fi, serves its web
-> page and reports its health over MQTT. Reading the sensor is next.
+> **Status:** 2.0 moves it onto App Base (step 6 of the [roadmap](docs/roadmap.md)), with the same topics and Home
+> Assistant entities as 1.0, so Home Assistant carries on as it was.
 
 ## Features
 
@@ -21,13 +22,19 @@ its Wi-Fi setup, web server, settings, MQTT connection, clock, watchdog and Wi-F
   hidden one), enter its password and choose Save & Connect; the device restarts onto your network. The Wi-Fi
   password is stored encrypted with a key derived from the device.
 - Getting back into setup mode (for a new router or a mistyped password): **hold the board's BOOTSEL button for
-  5 seconds** while it's running (the LED flashes quickly while it's held). Don't hold it while plugging in: that
-  starts the USB bootloader instead. If Wi-Fi hasn't connected after 5 attempts since boot (about 2-3 minutes), the
-  device restarts into setup mode by itself. Either way it keeps its saved settings until new ones are submitted,
-  and if setup mode times out it carries on with them.
+  5 seconds** while it's running (the LED flashes quickly while it's held), or use **Change Wi-Fi** on the Network
+  tab. Don't hold BOOTSEL while plugging in: that starts the USB bootloader instead. Either way it keeps its saved
+  settings until new ones are submitted, and if setup mode times out it carries on with them.
+- Changing Wi-Fi from the page: the Network tab scans for networks (or takes a hidden one's name) and the password.
+  The device restarts onto the new network on trial: if it can't connect within 5 minutes, it goes back to the one it
+  had. A network set in setup mode is on the same trial, and goes back to setup mode.
+- The Wi-Fi fallback: if Wi-Fi hasn't connected since the start for 6 hours (up to a day can be set, as a router can
+  be slow back after a power cut), the device restarts into setup mode by itself, for 10 minutes, then tries Wi-Fi
+  again. Both times, and whether it does this at all, are on the Network tab (`wlan.fallback`,
+  `wlan.fallback_after_min`, `wlan.fallback_for_min`; `GET` and `POST /api/wifi`).
 - Web UI and JSON HTTP API on port 80. The Status tab shows motion now, the last motion and the last 10
-  detections (when each started and cleared) beside the firmware version, uptime, time, free memory, Wi-Fi and
-  MQTT, all from `/api/info`; the other tabs hold the settings, the sensor's on the Device tab. An optional web password (Network tab) protects
+  detections (when each started, how long the sensor saw movement, and when it was cleared) beside the firmware version, uptime, time, free memory, Wi-Fi and
+  MQTT, all from `/api/info`; the other tabs hold the settings, the sensor's on the Device tab. An optional web password (Device tab) protects
   both with HTTP Basic auth (any username; `curl -u any:password`). It's sent unencrypted over your network, so it
   keeps out other people on the network rather than a determined attacker. Completing setup mode removes it, if
   it's forgotten. POSTs that a browser sends from another website's page are refused either way.
@@ -125,24 +132,29 @@ the new user; `check` then waits for the board to log in and runs the smoke test
 
 ### Updating over Wi-Fi
 
-Once a device runs this firmware, later versions can go over Wi-Fi:
+Once a device runs this firmware, later versions can go over Wi-Fi. A device on 1.0.0 takes 1.0.1 first: its
+updater can only write the folders 1.0 has, and 1.0.1 lets it write App Base's too:
 
 ```powershell
 $env:PICOPIR_WEB_PASSWORD = '...'   # or leave it unset to be asked
 .\scripts\deploy.ps1 -WiFi stairs.local
 ```
 
-It sends only the files that changed, and the device restarts to apply them. The device must have a web password
+It sends only the files that changed (`wifi_update.py --all` sends every one), and the device restarts to apply
+them. The device reads the list of files a line at a time, so a long one needs no large block of memory, and there's
+flash for a whole new version beside the old one. The device must have a web password
 set; updates are refused without one. The new firmware is on trial until its web server is up: if it doesn't get
 that far within 3 minutes, twice, the device puts the previous files back by itself and reports the rollback in its
 log and at `GET /api/update`. `main.py` and `otaboot.py`, which apply updates and roll them back, are only ever
-updated over USB, as are settings and credentials, which an update never touches.
+updated over USB, as are settings and credentials, which an update never touches. Without USB, the `<base>/log` topic
+has the device's warnings and errors.
 
 ## Tests
 
-`tests/` holds host-side tests for the device code's logic (config loading and saving, the API, MQTT topics and
-discovery, the captive-portal DNS replies, HTML escaping, Wi-Fi updates). They run on this PC with stand-ins for the
-MicroPython-only modules, so they don't need the device:
+`tests/` holds host-side tests for Pico PIR's own code: the sensor's timing, the set topic's commands, that the
+topics and Home Assistant discovery configs are 1.0's (`tests/ha_v1.json`), the PC's side of Wi-Fi updates and
+`new_device.py`, and that `src/base` is App Base's copy unchanged. App Base has its own tests for the rest. They run
+on this PC with stand-ins for the MicroPython-only modules, so they don't need the device:
 
 ```powershell
 py -m pytest
@@ -170,15 +182,16 @@ gitignored, so passwords won't be committed).
 
 Wi-Fi credentials and the device name are set through setup mode and stored in `provisioning.json` on the device.
 
-Saving settings only restarts the device when it has to: the device name, the Wi-Fi and MQTT settings, the time
-server, the watchdog and the sensor's pin are read at boot, while the time zone, log level, web password and the
-other sensor settings apply at once. The Save
+Saving settings only restarts the device when it has to: the Wi-Fi and MQTT settings, the time server, the
+watchdog and the sensor's pin are read at the start, while the time zone, log level, web password, the Wi-Fi
+fallback and the other sensor settings apply at once. A new name (Device tab, `POST /api/name`) is used from the next
+start. The Save
 button says "Save & Restart" when a change needs a restart.
 
 The Device tab has two reset buttons. **Reset settings** puts everything back to its default (including the MQTT
-settings, web password and a name set in the web UI) and keeps the Wi-Fi network. **Factory reset** also forgets
-the Wi-Fi network, so the device starts setup mode. From a script: `POST /api/reset` with `{"confirm": true}`, plus
-`"wifi": true` for a factory reset.
+settings, web password and a name set in the web UI) and keeps the Wi-Fi network and the sensor's pin. **Factory
+reset** also forgets the name and the Wi-Fi network, so the device starts setup mode. From a script: `POST
+/api/reset` or `POST /api/factory-reset`, each with `{"confirm": true}`.
 
 ## MQTT
 
@@ -188,8 +201,9 @@ With MQTT enabled (MQTT tab, or `mqtt` in `config.json`), the device uses these 
 | Topic | Direction | Contents |
 |---|---|---|
 | `<base>/status` | from the device, retained | `online` while connected. The broker sets `offline` (the MQTT will) if the device drops off |
-| `<base>/info` | from the device, retained | `{"version": "1.0.0", "uptime_s": 3600, "rssi": -58, "ip": "192.168.1.20", "mem_free": 86208}`: the device's health, as in `/api/info`, on connecting and every minute |
-| `<base>/state` | from the device, retained | `{"motion": true, "last": "2026-10-14T14:04:59+02:00", "count": 3, "enabled": true, "clear_after_s": 15}`: on connecting and whenever any of it changes. `last` is null until the clock is set |
+| `<base>/info` | from the device, retained | `{"version": "2.0.0", "uptime_s": 3600, "rssi": -58, "ip": "192.168.1.20", "mem_free": 86208}`: the device's health, as in `/api/info`, on connecting and every minute |
+| `<base>/state` | from the device, retained | `{"motion": false, "last": "2026-10-14T14:04:59+02:00", "last_end": "2026-10-14T14:05:06+02:00", "count": 3, "enabled": true, "clear_after_s": 15}`: on connecting and whenever any of it changes. `last` is when the latest movement started, `last_end` when the sensor last saw it (null while it's moving), without the clear time; `motion` clears `clear_after_s` after that. Times are null until the clock is set |
+| `<base>/log` | from the device | Its warnings and errors, a line each, as it logs them (not retained). While it's offline it keeps the last 8, and sends them when it's back, so the reason for a dropped connection arrives afterwards |
 | `<base>/set` | to the device | `{"enabled": false}` turns sensing off (`true` on again), `{"clear_after_s": 30}` sets the clear time (5-3600 s); either or both. Saved, as from the web page. Don't retain these: a retained command is ignored |
 
 With **Home Assistant discovery** turned on (`mqtt.ha_discovery`), the device publishes retained discovery configs
@@ -210,9 +224,10 @@ Assistant.
 
 | Path | Contents |
 |---|---|
-| `src/` | Device code, deployed to the root of the device. `main.py` starts it: `otaboot.py` deals with any Wi-Fi update, then `app.py` runs the firmware |
-| `src/www/` | The web UI, deployed to `/www`: a static page that fills itself in from the JSON API |
-| `src/lib/` | Third-party libraries, deployed to `/lib`: `microdot` (web server), `mqtt_as` (MQTT client) |
+| `src/` | Device code, deployed to the root of the device. `main.py` starts it: `otaboot` deals with any Wi-Fi update, then `app.py` runs `product.py` on App Base. `motion.py` is the sensor |
+| `src/base/` | App Base, a copy (made by App Base's `update-base.ps1 -Product src`, recorded in `VERSION`), deployed to `/base`; its `pico/otaboot.py` goes to the root |
+| `src/www/` | The web UI, deployed to `/www`: a static page on App Base's style and script that fills itself in from the JSON API |
+| `src/lib/` | `mqtt_as` (MQTT client), deployed to `/lib` |
 | `tests/` | Host-side pytest tests (`py -m pytest`); `conftest.py` stands in for the MicroPython-only modules |
 | `scripts/` | `deploy.ps1`; `wifi_update.py` (`deploy.ps1 -WiFi`); `new_device.py` (set up a new board); `device_log.py` (capture and summarise the serial log); `smoke_test.py` (test a running device over HTTP and MQTT) |
 | `docs/` | The roadmap and maintenance notes |
@@ -236,5 +251,5 @@ Pico PIR is released under the [MIT licence](LICENSE), © 2026 Earthstorm Softwa
 It includes two libraries, each under its own MIT licence (full notices in
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)):
 
-- [Microdot](https://github.com/miguelgrinberg/microdot), © 2019 Miguel Grinberg (`src/lib/microdot.py`).
+- [Microdot](https://github.com/miguelgrinberg/microdot), © 2019 Miguel Grinberg (`src/base/microdot.py`).
 - [mqtt_as](https://github.com/peterhinch/micropython-mqtt), © 2017 Peter Hinch (`src/lib/mqtt_as/`).

@@ -46,9 +46,18 @@ def report(status, name, detail=''):
     print(f'{status} {name}' + (f' ({detail})' if detail else ''), flush=True)
 
 
+def ipv4(host):
+    """The host's IPv4 address, or the host as given if it has none. Windows may resolve a .local name to an IPv6
+    link-local address first, which Python 3.14 can't connect to (connect(): flowinfo must be 0-1048575)."""
+    try:
+        return socket.getaddrinfo(host, 80, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
+    except OSError:
+        return host
+
+
 class Device:
     def __init__(self, host, timeout, password=None):
-        self.base = f'http://{host}'
+        self.base = f'http://{ipv4(host)}'
         self.timeout = timeout
         self.password = password
 
@@ -201,7 +210,7 @@ def test_mqtt(dev, config, args):
         return
 
     broker = args.broker or mqtt['broker_address']
-    device_name = config.get('device', {}).get('device_name')
+    device_name = dev.info()['name']  # the name in use (config.json's device_name is only a fallback)
     base = mqtt.get('topic_base', '/home/device/{name}').replace('{name}', device_name)
     ha_prefix = mqtt.get('ha_prefix', 'homeassistant')
     set_topic = base + '/set'
@@ -275,7 +284,7 @@ def test_mqtt(dev, config, args):
         check('mqtt.status_online', status == 'online', f'status={status}')
         expected_info = dev.info()
         ok, info = wait_json('info', lambda p: p.get('version') == expected_info.get('version')
-                             and isinstance(p.get('uptime_s'), int) and p.get('ip') == expected_info['wifi']['ip'])
+                             and isinstance(p.get('uptime_s'), int) and p.get('ip') == expected_info['ip'])
         check('mqtt.info', ok and isinstance(info.get('mem_free'), int), f'info={info}')
         settings = dev.sensor()
         ok, state = wait_json('state', lambda p: p.get('enabled') == settings.get('enabled') and

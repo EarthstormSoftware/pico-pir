@@ -1,0 +1,175 @@
+{
+ "ha_clear_after_s": {
+  "availability_topic": "/home/device/hall/status",
+  "command_template": "{\"clear_after_s\": {{ value | int }}}",
+  "command_topic": "/home/device/hall/set",
+  "device": {
+   "identifiers": [
+    "hall"
+   ],
+   "manufacturer": "Raspberry Pi",
+   "model": "Pico W",
+   "name": "hall",
+   "sw_version": "1.0.0"
+  },
+  "device_class": "duration",
+  "entity_category": "config",
+  "max": 3600,
+  "min": 5,
+  "mode": "box",
+  "name": "Clear after",
+  "state_topic": "/home/device/hall/state",
+  "step": 1,
+  "unique_id": "hall_clear_after_s",
+  "unit_of_measurement": "s",
+  "value_template": "{{ value_json.clear_after_s }}"
+ },
+ "ha_last_motion": {
+  "availability_topic": "/home/device/hall/status",
+  "device": {
+   "identifiers": [
+    "hall"
+   ],
+   "manufacturer": "Raspberry Pi",
+   "model": "Pico W",
+   "name": "hall",
+   "sw_version": "1.0.0"
+  },
+  "device_class": "timestamp",
+  "name": "Last motion",
+  "state_topic": "/home/device/hall/state",
+  "unique_id": "hall_last_motion",
+  "value_template": "{{ value_json.last }}"
+ },
+ "ha_motion": {
+  "availability_topic": "/home/device/hall/status",
+  "device": {
+   "identifiers": [
+    "hall"
+   ],
+   "manufacturer": "Raspberry Pi",
+   "model": "Pico W",
+   "name": "hall",
+   "sw_version": "1.0.0"
+  },
+  "device_class": "motion",
+  "name": "Motion",
+  "state_topic": "/home/device/hall/state",
+  "unique_id": "hall_motion",
+  "value_template": "{{ 'ON' if value_json.motion else 'OFF' }}"
+ },
+ "ha_sensing": {
+  "availability_topic": "/home/device/hall/status",
+  "command_topic": "/home/device/hall/set",
+  "device": {
+   "identifiers": [
+    "hall"
+   ],
+   "manufacturer": "Raspberry Pi",
+   "model": "Pico W",
+   "name": "hall",
+   "sw_version": "1.0.0"
+  },
+  "entity_category": "config",
+  "icon": "mdi:motion-sensor",
+  "name": "Sensing",
+  "payload_off": "{\"enabled\": false}",
+  "payload_on": "{\"enabled\": true}",
+  "state_off": "OFF",
+  "state_on": "ON",
+  "state_topic": "/home/device/hall/state",
+  "unique_id": "hall_sensing",
+  "value_template": "{{ 'ON' if value_json.enabled else 'OFF' }}"
+ },
+ "ha_sensor_ip": {
+  "availability_topic": "/home/device/hall/status",
+  "device": {
+   "identifiers": [
+    "hall"
+   ],
+   "manufacturer": "Raspberry Pi",
+   "model": "Pico W",
+   "name": "hall",
+   "sw_version": "1.0.0"
+  },
+  "entity_category": "diagnostic",
+  "name": "IP address",
+  "state_topic": "/home/device/hall/info",
+  "unique_id": "hall_ip",
+  "value_template": "{{ value_json.ip }}"
+ },
+ "ha_sensor_mem_free": {
+  "availability_topic": "/home/device/hall/status",
+  "device": {
+   "identifiers": [
+    "hall"
+   ],
+   "manufacturer": "Raspberry Pi",
+   "model": "Pico W",
+   "name": "hall",
+   "sw_version": "1.0.0"
+  },
+  "device_class": "data_size",
+  "entity_category": "diagnostic",
+  "name": "Free memory",
+  "state_class": "measurement",
+  "state_topic": "/home/device/hall/info",
+  "unique_id": "hall_mem_free",
+  "unit_of_measurement": "B",
+  "value_template": "{{ value_json.mem_free }}"
+ },
+ "ha_sensor_rssi": {
+  "availability_topic": "/home/device/hall/status",
+  "device": {
+   "identifiers": [
+    "hall"
+   ],
+   "manufacturer": "Raspberry Pi",
+   "model": "Pico W",
+   "name": "hall",
+   "sw_version": "1.0.0"
+  },
+  "device_class": "signal_strength",
+  "entity_category": "diagnostic",
+  "name": "Wi-Fi signal",
+  "state_class": "measurement",
+  "state_topic": "/home/device/hall/info",
+  "unique_id": "hall_rssi",
+  "unit_of_measurement": "dBm",
+  "value_template": "{{ value_json.rssi }}"
+ },
+ "ha_sensor_uptime_s": {
+  "availability_topic": "/home/device/hall/status",
+  "device": {
+   "identifiers": [
+    "hall"
+   ],
+   "manufacturer": "Raspberry Pi",
+   "model": "Pico W",
+   "name": "hall",
+   "sw_version": "1.0.0"
+  },
+  "device_class": "duration",
+  "entity_category": "diagnostic",
+  "name": "Uptime",
+  "state_class": "total_increasing",
+  "state_topic": "/home/device/hall/info",
+  "unique_id": "hall_uptime_s",
+  "unit_of_measurement": "s",
+  "value_template": "{{ value_json.uptime_s }}"
+ },
+ "topics": {
+  "ha_clear_after_s": "homeassistant/number/hall/clear_after_s/config",
+  "ha_last_motion": "homeassistant/sensor/hall/last_motion/config",
+  "ha_motion": "homeassistant/binary_sensor/hall/motion/config",
+  "ha_sensing": "homeassistant/switch/hall/sensing/config",
+  "ha_sensor_ip": "homeassistant/sensor/hall/ip/config",
+  "ha_sensor_mem_free": "homeassistant/sensor/hall/mem_free/config",
+  "ha_sensor_rssi": "homeassistant/sensor/hall/rssi/config",
+  "ha_sensor_uptime_s": "homeassistant/sensor/hall/uptime_s/config",
+  "info": "/home/device/hall/info",
+  "set": "/home/device/hall/set",
+  "state": "/home/device/hall/state",
+  "status": "/home/device/hall/status"
+ }
+}
