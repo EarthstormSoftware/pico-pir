@@ -201,7 +201,7 @@ With MQTT enabled (MQTT tab, or `mqtt` in `config.json`), the device uses these 
 | Topic | Direction | Contents |
 |---|---|---|
 | `<base>/status` | from the device, retained | `online` while connected. The broker sets `offline` (the MQTT will) if the device drops off |
-| `<base>/info` | from the device, retained | `{"version": "2.0.0", "uptime_s": 3600, "rssi": -58, "ip": "192.168.1.20", "mem_free": 86208}`: the device's health, as in `/api/info`, on connecting and every minute |
+| `<base>/info` | from the device, retained | `{"version": "2.1.0", "uptime_s": 3600, "rssi": -58, "ip": "192.168.1.20", "mem_free": 86208}`: the device's health, as in `/api/info`, on connecting and every minute |
 | `<base>/state` | from the device, retained | `{"motion": false, "last": "2026-10-14T14:04:59+02:00", "last_end": "2026-10-14T14:05:06+02:00", "count": 3, "enabled": true, "clear_after_s": 15}`: on connecting and whenever any of it changes. `last` is when the latest movement started, `last_end` when the sensor last saw it (null while it's moving), without the clear time; `motion` clears `clear_after_s` after that. Times are null until the clock is set |
 | `<base>/log` | from the device | Its warnings and errors, a line each, as it logs them (not retained). While it's offline it keeps the last 8, and sends them when it's back, so the reason for a dropped connection arrives afterwards |
 | `<base>/set` | to the device | `{"enabled": false}` turns sensing off (`true` on again), `{"clear_after_s": 30}` sets the clear time (5-3600 s); either or both. Saved, as from the web page. Don't retain these: a retained command is ignored |
