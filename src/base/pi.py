@@ -5,13 +5,13 @@ The app's state (config.json and anything else it writes) is in JUGGLE_STATE (/d
 is read-only. The device name is the Pi's: it's shown, and changed in the OS's setup mode (SSH and juggle know the Pi
 by it). A restart ends the app, which systemd starts again.
 
-What the OS does for the app, it asks for through app-request (Juggle OS v0.4; the app user may run it as root by
-sudo): a new version of itself, on trial; the time zone and time server; restarting the Pi. From the release after
-v0.4 (os_setup()), also setup mode: restarting into it (to rename the Pi, or change its Wi-Fi), a factory reset, and
-the Wi-Fi fallback (setup mode by itself when Wi-Fi doesn't connect: on or off, after how long, for how long). On a PC
-there's no app-request, so none of this is offered (os_requests() is False). The OS says what it has in JUGGLE, its
-Juggle OS version (juggle(); docs/app-contract.md in Juggle OS); an OS from before it is asked as before. systemd's
-watchdog restarts the app if its event loop stops (watchdog()).
+What the OS does for the app, it asks for through app-request (the app user may run it as root by sudo): a new
+version of itself, on trial; the time zone and time server; restarting the Pi; setup mode (to rename the Pi, or change
+its Wi-Fi), a factory reset, and the Wi-Fi fallback (setup mode by itself when Wi-Fi doesn't connect: on or off, after
+how long, for how long); a new Wi-Fi network. Juggle OS's app contract (docs/app-contract.md there) has them all from
+Juggle 1.0, and the OS says which contract it gives in JUGGLE (juggle()): the version, never the presence of a file,
+says what's there. On a PC, or an OS before 1.0, there's no JUGGLE, so none of it is offered. systemd's watchdog
+restarts the app if its event loop stops (watchdog()).
 """
 import asyncio
 import json
@@ -45,7 +45,8 @@ def _read(path):
 
 
 def health():
-    """The Pi's health for /api/info."""
+    """The Pi's health for /api/info. os's version, build and slot are read from files outside the app contract, so
+    each may be null."""
     temperature = _read('/sys/class/thermal/thermal_zone0/temp')
     uptime = _read('/proc/uptime')
     release = dict(line.split('=', 1) for line in (_read('/etc/juggle-release') or '').splitlines() if '=' in line)
@@ -108,22 +109,25 @@ def juggle():
     return (int(major), int(minor)) if major.isdigit() and minor.isdigit() else None
 
 
-def _since(level, before):
-    """Whether the OS has what came in Juggle level (major, minor); before() decides on an OS that doesn't say."""
+def _since(level):
+    """Whether the OS has what came in Juggle level (major, minor): a later minor of the same major has it too."""
     have = juggle()
-    return have[0] == level[0] and have >= level if have else before()
+    return have is not None and have[0] == level[0] and have >= level
+
+
+ONLY = 'Only on Juggle OS 1.0 or later.'
 
 
 def os_requests():
-    """Whether the OS takes the app's requests (Juggle OS v0.4 or later)."""
-    return _since((1, 0), lambda: os.path.exists(APP_REQUEST))
+    """Whether the OS takes the app's requests: the update, the clock, restarting the Pi."""
+    return _since((1, 0))
 
 
 def _request(*args, given=None):
     """Asks the OS (app-request), with given on its stdin (a password, kept out of the process list); its answer, or
     RequestError with why not."""
     if not os_requests():
-        raise RequestError('Only on Juggle OS v0.4 or later.')
+        raise RequestError(ONLY)
     command = [APP_REQUEST, *args] if os.geteuid() == 0 else ['sudo', '-n', APP_REQUEST, *args]
     try:
         done = subprocess.run(command, capture_output=True, text=True, timeout=60, input=given)
@@ -179,36 +183,14 @@ def restart_device():
     _request('restart')
 
 
-_setup = None
-
-
 def os_setup():
-    """Whether the OS has setup mode for the app (Juggle OS v0.5 or later). On an OS from before JUGGLE, found once
-    from app-request itself (it knows factory-reset), as /api/info asks every few seconds."""
-    global _setup
-    if _setup is None:
-        _setup = _since((1, 0), lambda: _app_request_knows('factory-reset'))
-    return _setup
-
-
-def _app_request_knows(text):
-    try:
-        with open(APP_REQUEST, encoding='utf-8') as f:
-            return text in f.read()
-    except OSError:
-        return False
-
-
-_wifi = None
+    """Whether the OS has setup mode for the app: restarting into it, a factory reset, the Wi-Fi fallback."""
+    return _since((1, 0))
 
 
 def os_wifi():
-    """Whether the OS takes a new Wi-Fi network from the app (Juggle OS v0.6 or later; before JUGGLE, app-request
-    knows networks), found once."""
-    global _wifi
-    if _wifi is None:
-        _wifi = _since((1, 0), lambda: _app_request_knows('app-request networks'))
-    return _wifi
+    """Whether the OS takes a new Wi-Fi network from the app, and lists the ones in range."""
+    return _since((1, 0))
 
 
 def wifi_ssid():
@@ -219,7 +201,7 @@ def wifi_ssid():
 def wifi_networks():
     """The networks in range, strongest first."""
     if not os_wifi():
-        raise RequestError("Only on a Juggle OS that takes Wi-Fi changes from the app.")
+        raise RequestError(ONLY)
     return json.loads(_request('networks'))
 
 
@@ -227,13 +209,13 @@ def change_wifi(ssid, password):
     """A new Wi-Fi network, from the Pi's next start, on trial: the OS goes back to the network before if it doesn't
     connect within 5 minutes."""
     if not os_wifi():
-        raise RequestError("Only on a Juggle OS that takes Wi-Fi changes from the app.")
+        raise RequestError(ONLY)
     _request('wifi', ssid, given=password + '\n')
 
 
 def _need_setup():
     if not os_setup():
-        raise RequestError('Only on Juggle OS with setup mode (the release after v0.4).')
+        raise RequestError(ONLY)
 
 
 def wifi_fallback():

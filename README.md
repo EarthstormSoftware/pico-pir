@@ -196,7 +196,7 @@ reset** also forgets the name and the Wi-Fi network, so the device starts setup 
 ## MQTT
 
 With MQTT enabled (MQTT tab, or `mqtt` in `config.json`), the device uses these topics under its topic base
-(`mqtt.topic_base`). The base defaults to `/home/device/{name}`, where `{name}` is replaced by the device name:
+(`mqtt.topic_base`). The base defaults to `home/device/{name}`, where `{name}` is replaced by the device name:
 
 | Topic | Direction | Contents |
 |---|---|---|

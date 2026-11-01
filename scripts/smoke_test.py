@@ -211,7 +211,7 @@ def test_mqtt(dev, config, args):
 
     broker = args.broker or mqtt['broker_address']
     device_name = dev.info()['name']  # the name in use (config.json's device_name is only a fallback)
-    base = mqtt.get('topic_base', '/home/device/{name}').replace('{name}', device_name)
+    base = mqtt.get('topic_base', 'home/device/{name}').replace('{name}', device_name)
     ha_prefix = mqtt.get('ha_prefix', 'homeassistant')
     set_topic = base + '/set'
     ha = bool(mqtt.get('ha_discovery'))

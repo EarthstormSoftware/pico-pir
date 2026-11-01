@@ -79,10 +79,8 @@ form:has(#mqtt_enabled:checked) .mqtt-off{display:none}
   </div>
 </div>
 
-<!-- DEVICE PANEL -->
-<div class="pane" id="pd">
-  <form class="settings">
-    <div class="cols">
+<!-- DEVICE PANEL: the sensor's own settings, then App Base's (base.js) -->
+<div class="pane" id="pd" data-base-pane="device">
     <div class="group">
       <div class="sec">Sensor</div>
       <label class="check"><input type="checkbox" name="sensor.enabled" id="sensor_enabled"> Detect motion</label>
@@ -99,208 +97,19 @@ form:has(#mqtt_enabled:checked) .mqtt-off{display:none}
       <p class="note" id="pin_help">The GPIO the sensor's output is wired to (GP22 as built). Changing it restarts the
         device.</p>
     </div>
-    <div class="group">
-      <div class="sec">Clock</div>
-      <div class="frow">
-        <div class="field"><label for="utc_offset_min">Time Zone</label>
-          <!-- Filled in by the script: UTC-12:00 to UTC+14:00 -->
-          <select name="device.utc_offset_min" id="utc_offset_min" data-number></select>
-        </div>
-        <div class="field"><label for="dst">Summer Time</label>
-          <select name="device.dst" id="dst">
-            <option value="none">None</option>
-            <option value="eu">Europe</option>
-            <option value="us">North America</option>
-          </select>
-        </div>
-      </div>
-      <div class="frow">
-        <div class="field"><label for="ntp_server">Time Server (NTP)</label>
-          <input type="text" name="device.ntp_server" id="ntp_server" maxlength="64" placeholder="none: don't set the clock" aria-describedby="ntp_help" spellcheck="false" autocapitalize="off">
-        </div>
-      </div>
-      <p class="note" id="ntp_help">The time zone is the standard (winter) offset; summer time adds an hour. Europe: last
-        Sunday of March to last Sunday of October. North America: second Sunday of March to first Sunday of November.</p>
-    </div>
-    <div class="group">
-      <div class="sec">Web Access</div>
-      <div class="frow">
-        <div class="field"><label for="web_password">Password</label>
-          <input type="password" name="web.password" id="web_password" maxlength="64" placeholder="leave blank to keep" autocomplete="new-password" aria-describedby="web_password_help">
-        </div>
-      </div>
-      <p class="note" data-password-set="web.password" hidden>A password is set.
-        <button type="button" class="reset" data-clear-password="web.password">Remove the password</button></p>
-      <p class="note" id="web_password_help">With a password set, the browser asks for it (any username), and updates
-        over Wi-Fi can be sent. It's sent unencrypted, so it keeps out other people on your network rather than a
-        determined attacker. Setup mode removes a forgotten one.</p>
-    </div>
-    <div class="group">
-      <div class="sec">Diagnostics</div>
-      <div class="frow">
-        <div class="field"><label for="log_level">Log Level (USB serial log)</label>
-          <select name="device.log_level" id="log_level" data-number>
-            <option value="0">Warnings and errors</option>
-            <option value="1">Info</option>
-            <option value="2">Debug</option>
-          </select>
-        </div>
-      </div>
-      <label class="check"><input type="checkbox" name="device.watchdog" id="watchdog"> Restart by itself if the firmware stops responding</label>
-    </div>
-    </div>
-    <button type="submit" class="btn-full save" disabled>Save</button>
-    <p class="msg" role="status" aria-live="polite"></p>
-  </form>
-
-  <div data-name-editable hidden>
-    <div class="sec">Name</div>
-    <div class="frow">
-      <div class="field"><label for="device_name">Device Name</label>
-        <input type="text" id="device_name" maxlength="32" aria-describedby="name_help" spellcheck="false" autocapitalize="off">
-      </div>
-    </div>
-    <p class="note" id="name_help">Also its network name (<i>name</i>.local) and MQTT client id. Home Assistant names
-      its sensors after it. Letters, digits, - and _; used from the next start.</p>
-    <button type="button" class="reset" id="rename_save">Save</button>
-    <p class="msg" id="rename_msg" role="status" aria-live="polite"></p>
-  </div>
-
-  <div class="sec">Updates</div>
-  <p class="note"><code>deploy.ps1 -WiFi &lt;name&gt;</code> sends a new version over Wi-Fi (with a web password set):
-    the device tries it, and goes back to this one if it doesn't start properly.</p>
-
-  <div class="sec">Restart and Reset</div>
-  <p class="note">Reset puts every setting on these pages back to its default (the web password too), but keeps the
-    Wi-Fi network and the sensor pin. A factory reset also forgets the name and Wi-Fi, and starts setup mode.</p>
-  <div class="buttons">
-    <button type="button" class="btn-full quiet" data-restart data-msg="reset_msg">Restart</button>
-    <button type="button" class="btn-full danger" data-reset data-msg="reset_msg" data-confirm="Reset all settings to their defaults? The device keeps its Wi-Fi network and restarts.">Reset settings</button>
-    <button type="button" class="btn-full danger" data-factory-reset data-os-setup hidden data-msg="reset_msg" data-confirm="Factory reset? The device forgets its settings, name and Wi-Fi, and starts its PicoPIR-SETUP hotspot to be set up again.">Factory reset</button>
-  </div>
-  <p class="msg" id="reset_msg" role="status" aria-live="polite"></p>
+  <template data-slot="names">its sensors</template>
+  <template data-slot="keeps"> and the sensor pin</template>
 </div>
 
-<!-- NETWORK PANEL -->
-<div class="pane" id="pn">
-  <div data-os-setup hidden>
-    <div class="sec">Wi-Fi Network</div>
-    <div data-wifi-change hidden>
-      <p class="note">Connected to <b id="wifi_current">&hellip;</b>. A new network is used after a restart, on trial:
-        if it can't connect within 5 minutes, the device goes back to this one.</p>
-      <div class="frow">
-        <div class="field"><label for="wifi_network">Network</label>
-          <select id="wifi_network"><option value="">Scan to list them</option></select>
-        </div>
-        <div class="field"><label for="wifi_network_other">Or type its name</label>
-          <input type="text" id="wifi_network_other" maxlength="32" placeholder="a hidden network" autocomplete="off" spellcheck="false" autocapitalize="off">
-        </div>
-      </div>
-      <div class="frow">
-        <div class="field"><label for="wifi_password">Password</label>
-          <input type="password" id="wifi_password" maxlength="64" placeholder="empty for an open network" autocomplete="new-password">
-        </div>
-      </div>
-      <div class="buttons">
-        <button type="button" class="btn-full quiet" id="wifi_scan">Scan</button>
-        <button type="button" class="btn-full" id="wifi_change">Change Wi-Fi</button>
-      </div>
-      <p class="msg" id="wifi_change_msg" role="status" aria-live="polite"></p>
-    </div>
-    <p class="note">Setup mode is the other way, with no network to reach this page: the device's PicoPIR-SETUP
-      hotspot and a page at http://192.168.4.1. Holding BOOTSEL for 5 s starts it, as does the fallback below.</p>
-    <div class="buttons">
-      <button type="button" class="btn-full quiet" data-setup-mode data-msg="wifi_msg" data-confirm="Restart into setup mode? This page goes away until the device is back.">Setup mode…</button>
-    </div>
-    <div class="sec">Wi-Fi Fallback</div>
-    <label class="check"><input type="checkbox" id="wifi_fallback_enabled"> If Wi-Fi doesn't connect, go into setup mode by itself</label>
-    <div class="frow">
-      <div class="field"><label for="wifi_fallback_after">After (minutes without a network, up to 1440: a day)</label>
-        <input type="number" id="wifi_fallback_after" min="1" max="1440" step="1">
-      </div>
-      <div class="field"><label for="wifi_fallback_for">For (minutes, then try Wi-Fi again)</label>
-        <input type="number" id="wifi_fallback_for" min="5" max="120" step="1">
-      </div>
-    </div>
-    <button type="button" class="reset" id="wifi_save">Save</button>
-    <p class="msg" id="wifi_msg" role="status" aria-live="polite"></p>
-  </div>
-
-  <form class="settings">
-    <div class="sec">Connecting</div>
-    <div class="frow">
-      <div class="field"><label for="connect_timeout">Timeout (s)</label>
-        <input type="number" required name="wlan.connect_timeout" id="connect_timeout" min="5" max="300">
-      </div>
-      <div class="field"><label for="reconnect_wait">Wait Between (s)</label>
-        <input type="number" required name="wlan.reconnect_wait" id="reconnect_wait" min="5" max="3600">
-      </div>
-      <div class="field"><label for="max_retries">Attempts (0: no limit)</label>
-        <input type="number" required name="wlan.max_retries" id="max_retries" min="0" max="1000">
-      </div>
-    </div>
-    <button type="submit" class="btn-full save" disabled>Save</button>
-    <p class="msg" role="status" aria-live="polite"></p>
-  </form>
-</div>
-
-<!-- MQTT PANEL -->
-<div class="pane" id="pm">
-  <form class="settings">
-    <label class="check"><input type="checkbox" name="mqtt.enabled" id="mqtt_enabled"> Connect to an MQTT broker</label>
-    <p class="note mqtt-off">MQTT lets home automation software such as Home Assistant or Node-RED see the motion.</p>
-    <div class="cols mqtt-more">
-    <div class="group">
-      <div class="sec">Broker</div>
-      <div class="frow">
-        <div class="field"><label for="broker_address">Address</label>
-          <input type="text" name="mqtt.broker_address" id="broker_address" maxlength="100" placeholder="host or host:port" spellcheck="false" autocapitalize="off">
-        </div>
-      </div>
-      <div class="frow">
-        <div class="field"><label for="mqtt_user">Username</label>
-          <input type="text" name="mqtt.user" id="mqtt_user" maxlength="64" autocomplete="off" spellcheck="false" autocapitalize="off">
-        </div>
-        <div class="field"><label for="mqtt_password">Password</label>
-          <input type="password" name="mqtt.password" id="mqtt_password" maxlength="64" placeholder="leave blank to keep" autocomplete="new-password">
-        </div>
-      </div>
-      <p class="note" data-password-set="mqtt.password" hidden>A password is set.
-        <button type="button" class="reset" data-clear-password="mqtt.password">Remove the password</button></p>
-      <div class="frow">
-        <div class="field"><label for="queue_len">Queue Length</label>
-          <input type="number" required name="mqtt.queue_len" id="queue_len" min="1" max="20">
-        </div>
-      </div>
-      <label class="check"><input type="checkbox" name="mqtt.clean" id="clean"> Clean session</label>
-    </div>
-    <div class="group">
-      <div class="sec">Topics</div>
-      <div class="frow">
-        <div class="field"><label for="topic_base">Topic Base</label>
-          <input type="text" required name="mqtt.topic_base" id="topic_base" maxlength="100" placeholder="/home/device/{name}" aria-describedby="topic_help" spellcheck="false" autocapitalize="off">
-        </div>
-      </div>
-      <p class="note" id="topic_help">{name} becomes the device name. The state is on &lt;base&gt;/state, and
-        {"enabled": false} or {"clear_after_s": 30} on &lt;base&gt;/set changes the sensor. Topics no longer used are
-        cleared from the broker after the restart.</p>
-    </div>
-    <div class="group">
-      <div class="sec">Home Assistant</div>
-      <label class="check"><input type="checkbox" name="mqtt.ha_discovery" id="ha_discovery"> Announce the sensor to Home Assistant</label>
-      <div class="frow">
-        <div class="field"><label for="ha_prefix">Discovery Prefix</label>
-          <input type="text" required name="mqtt.ha_prefix" id="ha_prefix" maxlength="100" placeholder="homeassistant" aria-describedby="ha_help" spellcheck="false" autocapitalize="off">
-        </div>
-      </div>
-      <p class="note" id="ha_help">Home Assistant adds the sensor automatically (MQTT discovery): the motion, the last
-        motion, and switches for sensing and the clear time. Turning this off removes it again. Only change the prefix
-        if Home Assistant's has been changed.</p>
-    </div>
-    </div>
-    <button type="submit" class="btn-full save" disabled>Save</button>
-    <p class="msg" role="status" aria-live="polite"></p>
-  </form>
+<!-- NETWORK AND MQTT PANELS: App Base's -->
+<div class="pane" id="pn" data-base-pane="network"></div>
+<div class="pane" id="pm" data-base-pane="mqtt">
+  <template data-slot="mqtt-does">see the motion</template>
+  <template data-slot="topics">The state is on &lt;base&gt;/state, and {"enabled": false} or
+    {"clear_after_s": 30} on &lt;base&gt;/set changes the sensor. </template>
+  <template data-slot="ha-what">the sensor</template>
+  <template data-slot="ha-adds">Home Assistant adds the sensor automatically (MQTT discovery): the motion, the
+    last motion, and switches for sensing and the clear time.</template>
 </div>
 
 <!-- SCHEDULE PANEL -->
@@ -338,18 +147,9 @@ form:has(#mqtt_enabled:checked) .mqtt-off{display:none}
 <footer id="footer"></footer>
 </div>
 
-<script src="/base.js"></script>
+<script src="/base.js" data-platform="pico"></script>
 <script>
 var el = Base.el;
-
-// Time zones, as offsets in minutes: every hour, and the half and quarter hours in use
-[-720, -660, -600, -570, -540, -480, -420, -360, -300, -240, -210, -180, -120, -60, 0, 60, 120, 180, 210, 240, 270,
-  300, 330, 345, 360, 390, 420, 480, 525, 540, 570, 600, 630, 660, 720, 765, 780, 840].forEach(function (m) {
-  var a = Math.abs(m);
-  el('utc_offset_min').appendChild(Base.mk('option', {
-    value: m, text: 'UTC' + (m < 0 ? '−' : '+') + ('0' + Math.floor(a / 60)).slice(-2) + ':' + ('0' + a % 60).slice(-2)
-  }));
-});
 
 function signal(r) {
   return r > -60 ? 'strong' : r > -70 ? 'good' : r > -80 ? 'weak' : 'very weak';

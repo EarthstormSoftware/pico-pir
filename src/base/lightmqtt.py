@@ -1,22 +1,21 @@
 """
 A light's MQTT, next to what every device has (base.mqtt): loaded only for a light, so a sensor doesn't carry it.
 
-  <base>/state         retained: {"State", "Mode", "ModeParameters", "Brightness"}, on every change
-  <base>/control       {"MessageType": "StateChange" | "ModeChange" | "BrightnessChange", "Parameters": {...}}
+  <base>/state         retained: {"state", "mode", "parameters", "brightness"}, on every change
+  <base>/control       a change, as the state: any of {"state", "mode", "parameters", "brightness"}
   <base>/ha/state      retained: the state in Home Assistant's JSON light schema
   <base>/ha/set        Home Assistant's JSON light commands
-  <base>/alert         starts an alert (if alerts are switched on): empty, or {"Colour", "Seconds", "OnMs", "OffMs",
-                       "Brightness"} for other than the alert settings; {"Active": false} ends one
-  <base>/alert/set     {"Enabled": true | false} switches alerts on or off
-  <base>/alert/state   retained: {"Enabled", "Active"}
+  <base>/alert         starts an alert (if alerts are switched on): empty, or {"colour", "seconds", "on_ms", "off_ms",
+                       "brightness"} for other than the alert settings (as POST /api/alert); {"active": false} ends one
+  <base>/alert/set     {"enabled": true | false} switches alerts on or off
+  <base>/alert/state   retained: {"enabled", "active"}
   <ha_prefix>/light/<name>/config, and for alerts .../switch/<name>/alerts and .../button/<name>/alert: retained
                        discovery (if it's on)
 
 Groups (mqtt.group; base.lightgroup, loaded only for a light in one): lights with the same group name follow each other through a retained topic,
-earthstorm/group/<group>, carrying {"State", "Mode", "ModeParameters", "Brightness", "From"}. Each member publishes its
+home/group/<group>, carrying {"state", "mode", "parameters", "brightness", "from"}. Each member publishes its
 own changes there (not the ones it makes following the group), and one that starts or joins takes the group's state.
-A member follows power, and brightness unless mqtt.group_brightness is off, and the mode only if it has it. Until
-PlasmaStick moves to App Base, it uses plasmastick/group/<group>: lights here publish to both and listen to both.
+A member follows power, and brightness unless mqtt.group_brightness is off, and the mode only if it has it.
 
 mqtt.alert_topic, if set, is another device's topic to watch: a message on it starts an alert (see
 base.lightwatch, loaded only then), so a motion sensor can ring the light like a doorbell. The discovery configs
@@ -47,14 +46,14 @@ def group_error(value):
 
 def ha_state_payload(state):
     """state: Light.state(). The same in Home Assistant's JSON light schema."""
-    parameters = state['ModeParameters']
-    payload = {'state': 'ON' if state['State'] else 'OFF', 'color_mode': 'rgb', 'effect': state['Mode'],
-               'brightness': state['Brightness']}
-    kelvin = parameters.get('Kelvin')
+    parameters = state['parameters']
+    payload = {'state': 'ON' if state['state'] else 'OFF', 'color_mode': 'rgb', 'effect': state['mode'],
+               'brightness': state['brightness']}
+    kelvin = parameters.get('kelvin')
     if kelvin:
         payload['color_mode'] = 'color_temp'
         payload['color_temp'] = (1000000 + kelvin // 2) // kelvin
-    colour = parameters.get('Colour')
+    colour = parameters.get('colour')
     if colour:
         digits = colour.lstrip('#')
         payload['color'] = {'r': int(digits[0:2], 16), 'g': int(digits[2:4], 16), 'b': int(digits[4:6], 16)}
@@ -62,7 +61,7 @@ def ha_state_payload(state):
 
 
 def alert_state_payload(light):
-    return json.dumps({'Enabled': light.settings.get('alert', 'enabled'), 'Active': light.alerting})
+    return json.dumps({'enabled': light.settings.get('alert', 'enabled'), 'active': light.alerting})
 
 
 def parse_alert(text):
@@ -72,10 +71,9 @@ def parse_alert(text):
     payload = json.loads(text)
     if not isinstance(payload, dict):
         raise ValueError('an alert must be empty or a JSON object')
-    if payload.get('Active') is False:
+    if payload.get('active') is False:
         return None
-    names = {'Colour': 'colour', 'Seconds': 'seconds', 'OnMs': 'on_ms', 'OffMs': 'off_ms', 'Brightness': 'brightness'}
-    return {names[k]: v for k, v in payload.items() if k in names}
+    return {k: v for k, v in payload.items() if k in ('colour', 'seconds', 'on_ms', 'off_ms', 'brightness')}
 
 
 def _number(value, low, high, what):
@@ -85,22 +83,16 @@ def _number(value, low, high, what):
 
 
 def parse_control(payload):
-    """A control message (PlasmaStick's): StateChange, ModeChange or BrightnessChange. Raises ValueError."""
+    """A control message: any of the state's {"state", "mode", "parameters", "brightness"}, as keyword arguments for
+    Light.set (which checks them). Raises ValueError."""
     if not isinstance(payload, dict):
         raise ValueError('a control message must be a JSON object')
-    kind = payload.get('MessageType')
-    parameters = payload.get('Parameters') or {}
-    if not isinstance(parameters, dict):
-        raise ValueError('Parameters must be an object')
-    if kind == 'StateChange':
-        if not isinstance(parameters.get('State'), bool):
-            raise ValueError('State must be true or false')
-        return {'on': parameters['State']}
-    if kind == 'ModeChange':
-        return {'mode': parameters.get('Mode'), 'parameters': parameters.get('ModeParameters')}
-    if kind == 'BrightnessChange':
-        return {'brightness': parameters.get('Brightness')}
-    raise ValueError('unknown MessageType {}'.format(kind))
+    names = {'state': 'on', 'mode': 'mode', 'parameters': 'parameters', 'brightness': 'brightness'}
+    if not payload or any(key not in names for key in payload):
+        raise ValueError('a control message has any of state, mode, parameters and brightness')
+    if 'state' in payload and not isinstance(payload['state'], bool):
+        raise ValueError('state must be true or false')
+    return {names[key]: value for key, value in payload.items()}
 
 
 def parse_ha_command(payload, modes):
@@ -116,10 +108,10 @@ def parse_ha_command(payload, modes):
             raise ValueError('color needs r, g and b')
         if not all(0 <= v <= 255 for v in (r, g, b)):
             raise ValueError('color values must be 0-255')
-        change.update(mode='Colour', parameters={'Colour': '#{:02x}{:02x}{:02x}'.format(r, g, b)})
+        change.update(mode='Colour', parameters={'colour': '#{:02x}{:02x}{:02x}'.format(r, g, b)})
     elif payload.get('color_temp') is not None:
         mireds = _number(payload['color_temp'], 100, 1000, 'color_temp')
-        change.update(mode='Colour', parameters={'Kelvin': min(6500, max(2000, int(1000000 / mireds + 0.5)))})
+        change.update(mode='Colour', parameters={'kelvin': min(6500, max(2000, int(1000000 / mireds + 0.5)))})
     elif effect is not None:
         if effect not in modes:
             raise ValueError('unknown effect')
@@ -193,10 +185,8 @@ class LightMqtt(Mqtt):
 
     async def _up_group(self, client):
         if self.group:
-            # The group's retained state arrives straight away, and the light takes it: PlasmaStick's topic second,
-            # as it's the one they use until they're on App Base
+            # The group's retained state arrives straight away, and the light takes it
             await client.subscribe(self.topics['group'])
-            await client.subscribe(self.topics['group_old'])
 
     async def _publish_state(self, client):
         try:
@@ -226,18 +216,16 @@ class LightMqtt(Mqtt):
                 return None
             return light.alert(**alert)
         if topic == t.get('alert_set'):
-            enabled = json.loads(text).get('Enabled')
+            enabled = json.loads(text).get('enabled')
             if not isinstance(enabled, bool):
-                return 'Enabled must be true or false'
-            error, changed = self.device.settings.update({'alert': {'enabled': enabled}})
-            if not error:
-                self.device.applied(changed)
+                return 'enabled must be true or false'
+            error = self.device.change({'alert': {'enabled': enabled}})
             self._changed.set()  # the switch's state, even if it didn't change
             return error
-        if self._group and topic in (t.get('group'), t.get('group_old')):
+        if self._group and topic == t.get('group'):
             payload = json.loads(text)
-            if not retained and isinstance(payload, dict) and payload.get('From') == self.name:
-                # This light's own change coming back (twice: both group topics): a newer one may have followed it.
+            if not retained and isinstance(payload, dict) and payload.get('from') == self.name:
+                # This light's own change coming back: a newer one may have followed it.
                 # The retained one on joining is still taken, as the group's state
                 return None
             change = self._group.group_change(payload, light,

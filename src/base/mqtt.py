@@ -29,7 +29,7 @@ ONLINE = 'online'
 
 OFFLINE = 'offline'
 
-DEFAULT_TOPIC_BASE = '/home/device/{name}'
+DEFAULT_TOPIC_BASE = 'home/device/{name}'
 
 DEFAULT_HA_PREFIX = 'homeassistant'
 
@@ -123,9 +123,8 @@ def watch_topic_error(value):
     return None
 
 
-# A light's group topic (base.lightmqtt), and PlasmaStick's, until it's on App Base
-GROUP_PREFIX = 'earthstorm/group/'
-OLD_GROUP_PREFIX = 'plasmastick/group/'
+# A light's group topic (base.lightmqtt)
+GROUP_PREFIX = 'home/group/'
 
 
 def topics(name, base=DEFAULT_TOPIC_BASE, ha_prefix=DEFAULT_HA_PREFIX, light=False, sensors=(), group='',
@@ -153,7 +152,6 @@ def topics(name, base=DEFAULT_TOPIC_BASE, ha_prefix=DEFAULT_HA_PREFIX, light=Fal
         if group:
             # Not retained by this light alone (the others use it too), so never cleared
             t['group'] = GROUP_PREFIX + group
-            t['group_old'] = OLD_GROUP_PREFIX + group
     for key in sensors:
         t['ha_sensor_' + key] = ha_prefix + '/sensor/' + name + '/' + key + '/config'
     return t
@@ -162,7 +160,7 @@ def topics(name, base=DEFAULT_TOPIC_BASE, ha_prefix=DEFAULT_HA_PREFIX, light=Fal
 def retained(t):
     """The topics in t that the device publishes retained."""
     return sorted(topic for role, topic in t.items()
-                  if role not in ('control', 'ha_set', 'alert', 'alert_set', 'group', 'group_old', 'set', 'log'))
+                  if role not in ('control', 'ha_set', 'alert', 'alert_set', 'group', 'set', 'log'))
 
 
 def info_payload(info):

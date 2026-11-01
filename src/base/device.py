@@ -10,21 +10,29 @@ A product is a module (product.py) with:
                                 clear and strip: see Light._run_direct)
   MIN_LEVEL (lights only)       optional: the share of full output that 1% brightness draws (default 0.06)
   MODE_ORDER (lights only)      optional: the modes' order, after Colour (a MicroPython dict may not keep LIGHT_MODES')
+  SETUP_SSID, NAME_PREFIX       on a Pico: its setup hotspot's name, and the start of the name made from the board's id
   setup_held()                  optional, on a Pico: True to start setup mode at power-on (a button held, say)
+  RESET_KEEPS                   optional: settings that describe the hardware rather than a preference, kept by a reset
+                                ((section, key) pairs)
   Codec                         optional: load(stored) and dump(values) for its part of a settings file laid out
                                 its own way (its firmware before the base), after the platform's
   info(device)                  optional: its own fields for /api/info
   routes(app, device)           optional: its own API routes
-  applied(device, changed)      optional: settings changed ((section, key) pairs) that apply at once
+  applied(device, changed)      optional: settings changed ((section, key) pairs) that apply at once (from the page,
+                                or device.change())
   tasks(device)                 optional: coroutines to run alongside
   state(device)                 optional, not lights: its state for MQTT's state topic (call device.state_changed())
   set(device, command)          optional, not lights: a command from MQTT's set topic (a dict); returns an error or None
+                                (device.change() makes a setting's change as the page does)
   scheduled(device, on)         optional, not lights: what a schedule event does (base.schedule), so it has one
   HA_ENTITIES, ha_entity(device, key, topics)   optional: its own Home Assistant entities, as (component, key), and
                                 each one's discovery config (unique_id, availability and device are added)
   www                           optional: the folder with its index.html (default: www beside product.py)
 
 main.py starts it: run(product).
+
+What a product may use of the device: settings (get, reveal, view), change(), state_changed(), light (a light's: see
+base.light), info(), and platform. The rest is the base's own.
 """
 from base.compat import MICROPYTHON, asyncio, mem_free, collect, beside
 from base.log import Log
@@ -103,7 +111,7 @@ class Device:
             info['light'] = {
                 'state': light.on,
                 'mode': light.mode,
-                'parameters': light.state()['ModeParameters'],  # with an effect's defaults, as MQTT has them
+                'parameters': light.state()['parameters'],  # with an effect's defaults, as MQTT has them
                 'brightness': light.brightness,
                 'modes': light.modes,
                 'alert': {'enabled': self.settings.get('alert', 'enabled'), 'active': light.alerting},
@@ -125,6 +133,22 @@ class Device:
             self.mqtt.alert_switched()
         if hasattr(self.product, 'applied'):
             self.product.applied(self, changed)
+
+    def change(self, updates):
+        """Changes settings ({section: {key: value}}) as the page does: checked and saved (all or none), applied, and
+        the device restarted for one that needs it. Returns why they weren't saved, or None."""
+        error, changed = self.settings.update(updates)
+        if not error:
+            self.changed(changed)
+        return error
+
+    def changed(self, changed):
+        """Settings that were saved: applied, or a restart for one that needs it. Returns whether it restarts."""
+        restart = self.settings.restart_needed(changed)
+        self.applied(changed)
+        if restart:
+            asyncio.create_task(self.restart_soon())
+        return restart
 
     def state_changed(self):
         """The product's state changed: MQTT publishes it."""

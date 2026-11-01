@@ -288,6 +288,9 @@ var Base = (function () {
     document.querySelectorAll('[data-os-setup]').forEach(function (n) { n.hidden = !setup; });
     // A name the device changes itself (a Pico's), rather than the OS's
     document.querySelectorAll('[data-name-editable]').forEach(function (n) { n.hidden = !i.name_editable; });
+    // The OS's name for a Juggle app (shown, not changed here); a Pico's setup hotspot
+    if (!i.name_editable && el('device_name')) el('device_name').value = i.name + '.local';
+    if (i.setup_ssid) document.querySelectorAll('[data-setup-ssid]').forEach(function (n) { n.textContent = i.setup_ssid; });
     if (el('update_note')) {
       var u = i.update;
       el('update_note').textContent = !u ? '' : (u.success ? '' : 'The last update failed: ') + u.message +
@@ -336,7 +339,7 @@ var Base = (function () {
         b.addEventListener('click', function () {
           expect('mode', m);
           showMode(m);
-          act('/api/mode', m === 'Colour' ? { mode: m, parameters: { Colour: el('colour').value } } : { mode: m });
+          act('/api/mode', m === 'Colour' ? { mode: m, parameters: { colour: el('colour').value } } : { mode: m });
         });
         el('modes').appendChild(b);
         modeButtons.push(b);
@@ -352,14 +355,14 @@ var Base = (function () {
       modeButtons.forEach(function (b) { b.setAttribute('aria-pressed', b.value === mode ? 'true' : 'false'); });
       el('speed_row').hidden = speedModes.indexOf(mode) < 0;
       if (l && document.activeElement !== el('speed')) {
-        var speed = (mode === l.mode && l.parameters.Speed) || (config && config.device.effect_speed) || 5;
+        var speed = (mode === l.mode && l.parameters.speed) || (config && config.device.effect_speed) || 5;
         el('speed').value = speed;
         el('speed_text').textContent = speed;
       }
       var colourOn = colourModes.indexOf(mode) >= 0;
       el('colour').disabled = !colourOn;
       el('kelvin').disabled = mode !== 'Colour';
-      var kelvin = l && l.mode === 'Colour' && l.parameters.Kelvin;
+      var kelvin = l && l.mode === 'Colour' && l.parameters.kelvin;
       if (document.activeElement !== el('kelvin')) {
         if (kelvin) el('kelvin').value = kelvin;
         // A colour picked any other way isn't a white temperature: no figure for it
@@ -373,7 +376,7 @@ var Base = (function () {
     function showDefault(mode) {
       if (!defaultColour) return;
       el('default_swatch').style.backgroundColor = defaultColour;
-      var l = info && info.light, current = l && l.mode === 'Colour' && l.parameters.Colour;
+      var l = info && info.light, current = l && l.mode === 'Colour' && l.parameters.colour;
       el('default_btn').disabled = el('set_default_btn').disabled = mode !== 'Colour' ||
         (!!current && !sending.colour && current.toLowerCase() === defaultColour.toLowerCase());
     }
@@ -393,7 +396,7 @@ var Base = (function () {
       }
       // Don't overwrite a colour while it's being picked
       if (!sending.colour && document.activeElement !== el('colour') && colourModes.indexOf(l.mode) >= 0) {
-        el('colour').value = (l.parameters.Colour || (opts.colours || {})[l.mode] || '#ffb46b').toLowerCase();
+        el('colour').value = (l.parameters.colour || (opts.colours || {})[l.mode] || '#ffb46b').toLowerCase();
       }
       showMode(mode);
     }
@@ -435,7 +438,7 @@ var Base = (function () {
     });
     var sendColour = sender('colour', function (c) {
       var mode = info && colourModes.indexOf(info.light.mode) >= 0 ? info.light.mode : 'Colour';
-      return api('/api/mode', { mode: mode, parameters: { Colour: c } });
+      return api('/api/mode', { mode: mode, parameters: { colour: c } });
     });
     el('colour').addEventListener('input', function () { sendColour(el('colour').value); });
 
@@ -447,7 +450,7 @@ var Base = (function () {
     });
     // The colour showing becomes the default
     el('set_default_btn').addEventListener('click', function () {
-      var l = info && info.light, c = l && l.parameters.Colour;
+      var l = info && info.light, c = l && l.parameters.colour;
       if (!c) return;
       el('set_default_btn').disabled = true;
       api('/api/config', { device: { default_colour: c.toLowerCase() } }).then(function () {
@@ -463,12 +466,12 @@ var Base = (function () {
     el('kelvin').addEventListener('input', function () { el('kelvin_text').textContent = el('kelvin').value + ' K'; });
     el('kelvin').addEventListener('change', function () {
       expect('mode', 'Colour');
-      act('/api/mode', { mode: 'Colour', parameters: { Kelvin: Number(el('kelvin').value) } });
+      act('/api/mode', { mode: 'Colour', parameters: { kelvin: Number(el('kelvin').value) } });
     });
     el('speed').addEventListener('input', function () { el('speed_text').textContent = el('speed').value; });
     el('speed').addEventListener('change', function () {
       var mode = info && shown(info.light, 'mode');
-      if (mode) act('/api/mode', { mode: mode, parameters: { Speed: Number(el('speed').value) } });
+      if (mode) act('/api/mode', { mode: mode, parameters: { speed: Number(el('speed').value) } });
     });
 
     return { act: act, expect: expect };
@@ -685,6 +688,178 @@ var Base = (function () {
       }).catch(function (e) { say('rename_msg', 'Not saved: ' + e.message); });
     });
   }
+
+  // The shared tabs. A pane marked data-base-pane ("device", "network" on a Pico, or "mqtt") gets the base's sections,
+  // after the product's own (the .group elements it has). The <script> tag that loads this file says the platform
+  // (data-platform="pico"; a Juggle app's otherwise) and whether the product is a light (data-light). A product's own
+  // words replace a slot's default: <template data-slot="name">...</template> in the pane. Built as the file loads, so
+  // the product's script finds the fields; the markup is the base's own, so it's set as HTML.
+  var script = document.currentScript, pico = script && script.dataset.platform === 'pico',
+    isLight = !!(script && 'light' in script.dataset);
+
+  function slot(name, text) { return '<span data-slot="' + name + '">' + text + '</span>'; }
+
+  var PASSWORD_NOTE = '<p class="note" data-password-set="{k}" hidden>A password is set. <button type="button" ' +
+    'class="reset" data-clear-password="{k}">Remove the password</button></p>';
+
+  var FALLBACK = '<div class="sec">Wi-Fi Fallback</div>' +
+    '<label class="check"><input type="checkbox" id="wifi_fallback_enabled"> If Wi-Fi doesn\'t connect, go into setup mode by itself</label>' +
+    '<div class="frow"><div class="field"><label for="wifi_fallback_after">After (minutes without a network, up to 1440: a day)</label>' +
+    '<input type="number" id="wifi_fallback_after" min="1" max="1440" step="1"></div>' +
+    '<div class="field"><label for="wifi_fallback_for">For (minutes, then try Wi-Fi again)</label>' +
+    '<input type="number" id="wifi_fallback_for" min="5" max="120" step="1"></div></div>' +
+    '<button type="button" class="reset" id="wifi_save">Save</button>' +
+    '<p class="msg" id="wifi_msg" role="status" aria-live="polite"></p>';
+
+  function wifiChange(where, who, password) {
+    return '<div data-wifi-change hidden><p class="note">' + where + ' <b id="wifi_current">&hellip;</b>. A new network ' +
+      'is used after a restart, on trial: if it can\'t connect within 5 minutes, ' + who + ' goes back to this one.</p>' +
+      '<div class="frow"><div class="field"><label for="wifi_network">Network</label>' +
+      '<select id="wifi_network"><option value="">Scan to list them</option></select></div>' +
+      '<div class="field"><label for="wifi_network_other">Or type its name</label>' +
+      '<input type="text" id="wifi_network_other" maxlength="32" placeholder="a hidden network" autocomplete="off" spellcheck="false" autocapitalize="off"></div></div>' +
+      '<div class="frow"><div class="field"><label for="wifi_password">Password</label>' + password + '</div></div>' +
+      '<div class="buttons"><button type="button" class="btn-full quiet" id="wifi_scan">Scan</button>' +
+      '<button type="button" class="btn-full" id="wifi_change">Change Wi-Fi</button></div>' +
+      '<p class="msg" id="wifi_change_msg" role="status" aria-live="polite"></p></div>';
+  }
+
+  var SAVE = '<button type="submit" class="btn-full save" disabled>Save</button><p class="msg" role="status" aria-live="polite"></p>';
+
+  function devicePane() {
+    var groups = (pico
+      ? '<div class="group"><div class="sec">Clock</div><div class="frow">' +
+        '<div class="field"><label for="utc_offset_min">Time Zone</label><select name="device.utc_offset_min" id="utc_offset_min" data-number></select></div>' +
+        '<div class="field"><label for="dst">Summer Time</label><select name="device.dst" id="dst"><option value="none">None</option>' +
+        '<option value="eu">Europe</option><option value="us">North America</option></select></div></div>' +
+        '<div class="frow"><div class="field"><label for="ntp_server">Time Server (NTP)</label>' +
+        '<input type="text" name="device.ntp_server" id="ntp_server" maxlength="64" placeholder="none: don\'t set the clock" aria-describedby="ntp_help" spellcheck="false" autocapitalize="off"></div></div>' +
+        '<p class="note" id="ntp_help">The time zone is the standard (winter) offset; summer time adds an hour. Europe: last ' +
+        'Sunday of March to last Sunday of October. North America: second Sunday of March to first Sunday of November.</p></div>'
+      : '<div class="group"><div class="sec">Identity</div><div class="frow"><div class="field"><label for="device_name">Device Name</label>' +
+        '<input type="text" id="device_name" aria-describedby="name_help" disabled></div></div>' +
+        '<p class="note" id="name_help">The Pi\'s name, which SSH knows it by: it\'s set when the card is flashed, or in setup mode.</p></div>') +
+      '<div class="group"><div class="sec">Web Access</div><div class="frow"><div class="field"><label for="web_password">Password</label>' +
+      '<input type="password" name="web.password" id="web_password" maxlength="64" placeholder="leave blank to keep" autocomplete="new-password" aria-describedby="web_password_help"></div></div>' +
+      PASSWORD_NOTE.replace(/\{k\}/g, 'web.password') +
+      '<p class="note" id="web_password_help">With a password set, the browser asks for it (any username)' +
+      (pico ? ', and updates over Wi-Fi can be sent' : '') + '. It\'s sent unencrypted, so it keeps out other people on ' +
+      'your network rather than a determined attacker.' + (pico ? ' Setup mode removes a forgotten one.' : '') + '</p></div>' +
+      '<div class="group"><div class="sec">Diagnostics</div><div class="frow"><div class="field">' +
+      '<label for="log_level">Log Level (' + (pico ? 'USB serial log' : 'the Pi\'s journal') + ')</label>' +
+      '<select name="device.log_level" id="log_level" data-number><option value="0">Warnings and errors</option>' +
+      '<option value="1">Info</option><option value="2">Debug</option></select></div></div>' +
+      (pico ? '<label class="check"><input type="checkbox" name="device.watchdog" id="watchdog"> Restart by itself if the firmware stops responding</label>'
+        : '<p class="note">Over SSH: <code>journalctl -u juggle-app</code>.</p>') + '</div>';
+    var rest = pico
+      ? '<div data-name-editable hidden><div class="sec">Name</div><div class="frow"><div class="field"><label for="device_name">Device Name</label>' +
+        '<input type="text" id="device_name" maxlength="32" aria-describedby="name_help" spellcheck="false" autocapitalize="off"></div></div>' +
+        '<p class="note" id="name_help">Also its network name (<i>name</i>.local) and MQTT client id. Home Assistant names ' +
+        slot('names', 'its entities') + ' after it. Letters, digits, - and _; used from the next start.</p>' +
+        '<button type="button" class="reset" id="rename_save">Save</button><p class="msg" id="rename_msg" role="status" aria-live="polite"></p></div>' +
+        '<div class="sec">Updates</div><p class="note"><code>deploy.ps1 -WiFi &lt;name&gt;</code> sends a new version over ' +
+        'Wi-Fi (with a web password set): the device tries it, and goes back to this one if it doesn\'t start properly.</p>'
+      : '<div class="sec">Updates</div><p class="note"><code>deploy.ps1 &lt;name&gt; -WiFi</code> sends a new version over ' +
+        'the network: the Pi tries it, and goes back to this one if it doesn\'t keep running.</p><p class="note" id="update_note"></p>' +
+        '<div data-os-setup hidden><div class="sec">Wi-Fi</div>' +
+        wifiChange('The Pi is set to', 'the Pi', '<input type="password" id="wifi_password" maxlength="63" placeholder="8-63 characters" autocomplete="new-password">') +
+        '<div class="sec">Name and Setup Mode</div><p class="note">The Pi\'s name, and its Wi-Fi when it can\'t reach this ' +
+        'page, are changed in its setup mode: it restarts with the Juggle-SETUP Wi-Fi network and a setup page, for as ' +
+        'long as set below, then carries on with its settings unless new ones are saved there.</p>' +
+        '<div class="buttons"><button type="button" class="btn-full quiet" data-setup-mode data-msg="wifi_msg" ' +
+        'data-confirm="Restart the Pi into setup mode? This page goes away until it\'s back.">Rename (setup mode)…</button></div>' +
+        FALLBACK + '</div>';
+    rest += '<div class="sec">Restart and Reset</div><p class="note">Reset puts every setting on these pages back to its ' +
+      'default (the web password too)' + (pico ? ', but keeps the Wi-Fi network' + slot('keeps', '') +
+        '. A factory reset also forgets the name and Wi-Fi, and starts setup mode.'
+        : slot('keeps', '') + '. A factory reset also makes the Pi forget its name, Wi-Fi and SSH keys, and start in ' +
+        'setup mode as a new Pi.') + '</p>' +
+      '<div class="buttons"><button type="button" class="btn-full quiet" data-restart data-msg="reset_msg">Restart</button>' +
+      (pico ? '' : '<button type="button" class="btn-full quiet" data-reboot data-os-requests hidden data-msg="reset_msg" ' +
+        'data-confirm="Restart the Pi? It\'s back in about a minute.">Restart the Pi</button>') +
+      '<button type="button" class="btn-full danger" data-reset data-msg="reset_msg" data-confirm="Reset all settings to ' +
+      'their defaults? ' + (pico ? 'The device keeps its Wi-Fi network and restarts.' : 'The app restarts.') + '">Reset settings</button>' +
+      '<button type="button" class="btn-full danger" data-factory-reset data-os-setup hidden data-msg="reset_msg" data-confirm="' +
+      (pico ? 'Factory reset? The device forgets its settings, name and Wi-Fi, and starts its setup hotspot to be set up again.'
+        : 'Factory reset? The Pi forgets its name, Wi-Fi and SSH keys and starts in setup mode, as a new Pi. Use Reset ' +
+        'settings as well to reset this app.') + '">Factory reset</button></div>' +
+      '<p class="msg" id="reset_msg" role="status" aria-live="polite"></p>';
+    return ['<form class="settings"><div class="cols">', groups + '</div>' + SAVE + '</form>' + rest];
+  }
+
+  function networkPane() {
+    return ['', '<div data-os-setup hidden><div class="sec">Wi-Fi Network</div>' +
+      wifiChange('Connected to', 'the device', '<input type="password" id="wifi_password" maxlength="64" placeholder="empty for an open network" autocomplete="new-password">') +
+      '<p class="note">Setup mode is the other way, with no network to reach this page: the device\'s ' +
+      '<span data-setup-ssid>setup</span> hotspot and a page at http://192.168.4.1. ' +
+      slot('setup-start', 'Holding BOOTSEL for 5 s starts it') + ', as does the fallback below.</p>' +
+      '<div class="buttons"><button type="button" class="btn-full quiet" data-setup-mode data-msg="wifi_msg" ' +
+      'data-confirm="Restart into setup mode? This page goes away until the device is back.">Setup mode…</button></div>' +
+      FALLBACK + '</div>' +
+      '<form class="settings"><div class="sec">Connecting</div><div class="frow">' +
+      '<div class="field"><label for="connect_timeout">Timeout (s)</label><input type="number" required name="wlan.connect_timeout" id="connect_timeout" min="5" max="300"></div>' +
+      '<div class="field"><label for="reconnect_wait">Wait Between (s)</label><input type="number" required name="wlan.reconnect_wait" id="reconnect_wait" min="5" max="3600"></div>' +
+      '<div class="field"><label for="max_retries">Attempts (0: no limit)</label><input type="number" required name="wlan.max_retries" id="max_retries" min="0" max="1000"></div>' +
+      '</div>' + SAVE + '</form>'];
+  }
+
+  function mqttPane() {
+    return ['<form class="settings"><label class="check"><input type="checkbox" name="mqtt.enabled" id="mqtt_enabled"> ' +
+      'Connect to an MQTT broker</label><p class="note mqtt-off">MQTT lets home automation software such as Home ' +
+      'Assistant or Node-RED ' + slot('mqtt-does', 'read and control the device') + '.</p><div class="cols mqtt-more">' +
+      '<div class="group"><div class="sec">Broker</div><div class="frow"><div class="field"><label for="broker_address">Address</label>' +
+      '<input type="text" name="mqtt.broker_address" id="broker_address" maxlength="100" placeholder="host or host:port" spellcheck="false" autocapitalize="off"></div></div>' +
+      '<div class="frow"><div class="field"><label for="mqtt_user">Username</label>' +
+      '<input type="text" name="mqtt.user" id="mqtt_user" maxlength="64" autocomplete="off" spellcheck="false" autocapitalize="off"></div>' +
+      '<div class="field"><label for="mqtt_password">Password</label>' +
+      '<input type="password" name="mqtt.password" id="mqtt_password" maxlength="64" placeholder="leave blank to keep" autocomplete="new-password"></div></div>' +
+      PASSWORD_NOTE.replace(/\{k\}/g, 'mqtt.password') +
+      (pico ? '<div class="frow"><div class="field"><label for="queue_len">Queue Length</label>' +
+        '<input type="number" required name="mqtt.queue_len" id="queue_len" min="1" max="20"></div></div>' +
+        '<label class="check"><input type="checkbox" name="mqtt.clean" id="clean"> Clean session</label>' : '') + '</div>' +
+      '<div class="group"><div class="sec">Topics</div><div class="frow"><div class="field"><label for="topic_base">Topic Base</label>' +
+      '<input type="text" required name="mqtt.topic_base" id="topic_base" maxlength="100" placeholder="home/device/{name}" aria-describedby="topic_help topic_preview" spellcheck="false" autocapitalize="off"></div></div>' +
+      '<p class="note" id="topic_help">{name} becomes the device name. ' + slot('topics', '') + 'Topics no longer used are ' +
+      'cleared from the broker after the restart.</p><div class="note topics" id="topic_preview"></div></div>',
+      (isLight ? '<div class="group"><div class="sec">Group</div><div class="frow"><div class="field"><label for="mqtt_group">Group Name</label>' +
+        '<input type="text" name="mqtt.group" id="mqtt_group" maxlength="32" placeholder="not in a group" aria-describedby="group_help" spellcheck="false" autocapitalize="off"></div></div>' +
+        '<label class="check"><input type="checkbox" name="mqtt.group_brightness" id="group_brightness"> Follow the group\'s brightness</label>' +
+        '<p class="note" id="group_help">Lights with the same group name follow each other (on home/group/<i>name</i>): turn ' +
+        'one on, or change its mode or colour, and the rest do the same. A mode another light doesn\'t have is ignored ' +
+        'by it. Letters, digits, - and _.</p></div>' : '') +
+      '<div class="group"><div class="sec">Home Assistant</div><label class="check"><input type="checkbox" name="mqtt.ha_discovery" id="ha_discovery"> ' +
+      '<span>Announce ' + slot('ha-what', 'the device') + ' to Home Assistant</span></label><div class="frow"><div class="field"><label for="ha_prefix">Discovery Prefix</label>' +
+      '<input type="text" required name="mqtt.ha_prefix" id="ha_prefix" maxlength="100" placeholder="homeassistant" aria-describedby="ha_help" spellcheck="false" autocapitalize="off"></div></div>' +
+      '<p class="note" id="ha_help">' + slot('ha-adds', 'Home Assistant adds it automatically (MQTT discovery).') +
+      ' Turning this off removes it again. Only change the prefix if Home Assistant\'s has been changed.</p></div></div>' + SAVE + '</form>'];
+  }
+
+  function panes() {
+    var builders = { device: devicePane, network: networkPane, mqtt: mqttPane };
+    document.querySelectorAll('[data-base-pane]').forEach(function (pane) {
+      var slots = {};
+      pane.querySelectorAll('template[data-slot]').forEach(function (t) { slots[t.dataset.slot] = t.innerHTML; t.remove(); });
+      // The product's own sections go first, inside the base's form (so they're saved with it), then the base's
+      var own = Array.prototype.slice.call(pane.children), parts = builders[pane.dataset.basePane]();
+      pane.innerHTML = parts[0] + '<span data-own></span>' + parts[1];
+      var mark = pane.querySelector('[data-own]');
+      own.forEach(function (n) { mark.parentNode.insertBefore(n, mark); });
+      mark.remove();
+      pane.querySelectorAll('[data-slot]').forEach(function (s) {
+        if (s.dataset.slot in slots) s.innerHTML = slots[s.dataset.slot];
+      });
+    });
+    // A Pico's time zones, as offsets in minutes: every hour, and the half and quarter hours in use
+    if (el('utc_offset_min')) {
+      [-720, -660, -600, -570, -540, -480, -420, -360, -300, -240, -210, -180, -120, -60, 0, 60, 120, 180, 210, 240,
+        270, 300, 330, 345, 360, 390, 420, 480, 525, 540, 570, 600, 630, 660, 720, 765, 780, 840].forEach(function (m) {
+        var a = Math.abs(m);
+        el('utc_offset_min').appendChild(mk('option', { value: m, text: 'UTC' + (m < 0 ? '−' : '+') +
+          ('0' + Math.floor(a / 60)).slice(-2) + ':' + ('0' + a % 60).slice(-2) }));
+      });
+    }
+  }
+  panes();
 
   function start() {
     tabs();

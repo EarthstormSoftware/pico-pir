@@ -18,7 +18,9 @@ def v1():
 
 
 def topics():
-    return mqtt.topics('hall', sensors=pico.SENSORS, product_state=True, entities=product.HA_ENTITIES)
+    # 1.0's topic base, which a device that has saved its settings keeps (new ones start on home/device/{name})
+    return mqtt.topics('hall', '/home/device/{name}', sensors=pico.SENSORS, product_state=True,
+                       entities=product.HA_ENTITIES)
 
 
 def as_v1(config):
@@ -67,6 +69,13 @@ class Device:
 
     def applied(self, changed):
         self.changed.append(changed)
+
+    def change(self, updates):
+        # As App Base's device.change, which its own tests cover
+        error, changed = self.settings.update(updates)
+        if not error:
+            self.applied(changed)
+        return error
 
 
 def test_commands_change_the_sensor_settings():
