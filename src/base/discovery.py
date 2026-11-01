@@ -80,8 +80,8 @@ def alerts(name, t, product):
     """The switch that turns alerts on and off."""
     return json.dumps({
         'name': 'Alerts', 'unique_id': name + '_alerts', 'icon': 'mdi:alarm-light-outline',
-        'command_topic': t['alert_set'], 'payload_on': '{"Enabled": true}', 'payload_off': '{"Enabled": false}',
-        'state_topic': t['alert_state'], 'value_template': "{{ 'ON' if value_json.Enabled else 'OFF' }}",
+        'command_topic': t['alert_set'], 'payload_on': '{"enabled": true}', 'payload_off': '{"enabled": false}',
+        'state_topic': t['alert_state'], 'value_template': "{{ 'ON' if value_json.enabled else 'OFF' }}",
         'state_on': 'ON', 'state_off': 'OFF', 'availability_topic': t['status'], 'device': device(name, product),
     })
 

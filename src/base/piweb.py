@@ -1,9 +1,9 @@
 """
 What a Juggle app asks of the OS, as routes (the Pi platform's routes(), called by base.web): GET /api/update (the
 last update's result), POST /api/update (a .tar of the app's folder: the OS installs it on trial and restarts the app
-with it), GET and POST /api/clock ({"time_zone", "ntp"}, and the zones to choose from) and POST /api/reboot
-({"confirm": true}: restarts the Pi). With setup mode in the OS: GET and POST /api/wifi ({"fallback": {"enabled",
-"after_minutes", "for_minutes"}}: setup mode when Wi-Fi doesn't connect; and where the OS takes them, {"network":
+with it), GET and POST /api/clock ({"time_zone", "ntp"}, and the zones to choose from), POST /api/reboot
+({"confirm": true}: restarts the Pi), GET and POST /api/wifi ({"fallback": {"enabled",
+"after_minutes", "for_minutes"}}: setup mode when Wi-Fi doesn't connect; and {"network":
 {"ssid", "password"}}: a new network, which the Pi restarts onto, on trial), GET /api/wifi/networks (a scan), POST
 /api/setup-mode and /api/factory-reset (each {"confirm": true}).
 """
@@ -63,8 +63,7 @@ def routes(app, device):
         if _json(request).get('confirm') is not True:
             return {'success': False, 'error': 'confirm must be true'}, 400
         if not available:
-            return {'success': False, 'error': 'Only on Juggle OS v0.4 or later.' if do == platform.restart_device
-                    else 'Only on Juggle OS with setup mode (the release after v0.4).'}, 400
+            return {'success': False, 'error': platform.ONLY}, 400
         return after_answer(what, do)
 
     def after_answer(what, do):

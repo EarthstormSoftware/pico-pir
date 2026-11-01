@@ -83,17 +83,12 @@ def set(device, command):
     value = command.get('clear_after_s')
     if isinstance(value, float) and value == int(value):  # 20.0, from a slider
         command['clear_after_s'] = int(value)
-    error, changed = device.settings.update({'sensor': command})
-    if not error:
-        device.applied(changed)
-    return error
+    return device.change({'sensor': command})
 
 
 def scheduled(device, on):
     """A schedule event: sensing on or off, as from the page."""
-    error, changed = device.settings.update({'sensor': {'enabled': on}})
-    if not error:
-        device.applied(changed)
+    device.change({'sensor': {'enabled': on}})
 
 
 def applied(device, changed):

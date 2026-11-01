@@ -30,7 +30,7 @@ def routes(app, device):
         parameters = data.get('parameters')
         if data.get('mode') == 'Colour' and parameters is None:
             # Colour with no colour: the default (the page's Default button)
-            parameters = {'Colour': device.settings.get('device', 'default_colour')}
+            parameters = {'colour': device.settings.get('device', 'default_colour')}
         error = light.set(mode=data.get('mode'), parameters=parameters)
         if error:
             return {'success': False, 'error': error}, 400

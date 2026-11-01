@@ -112,11 +112,7 @@ def create(device):
         error, changed = device.settings.update(_json(request))
         if error:
             return {'success': False, 'error': error}, 400
-        restart = device.settings.restart_needed(changed)
-        device.applied(changed)
-        if restart:
-            asyncio.create_task(device.restart_soon())
-        return {'success': True, 'restart_required': restart}
+        return {'success': True, 'restart_required': device.changed(changed)}
 
     @app.post('/api/restart')
     async def restart(request):

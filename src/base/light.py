@@ -102,7 +102,7 @@ class Light:
         self.min_level = min_level
         self.on = False
         self.mode = 'Colour'
-        self.parameters = {'Colour': settings.get('device', 'default_colour')}
+        self.parameters = {'colour': settings.get('device', 'default_colour')}
         self.brightness = settings.get('device', 'default_brightness')
         # Told of every change (MQTT state, groups): listener(light); light.local says whether it was made here
         # (rather than by following a group, which isn't passed back to it)
@@ -112,7 +112,7 @@ class Light:
         # What's drawn: the level (0-1, brightness and fades) and, in Colour mode, the colour, each fading to its target
         self._level = 0.0
         self._level_fade = None  # (from, to, start, ms)
-        self._colour = rgb(self.parameters['Colour'])
+        self._colour = rgb(self.parameters['colour'])
         self._colour_fade = None  # (from rgb, to rgb, start, ms)
         self._wake = asyncio.Event()
         self._alert = None  # (rgb, start, ms, on_ms, off_ms, level) while one shows
@@ -132,15 +132,15 @@ class Light:
             return None
         if not isinstance(parameters, dict):
             return 'Mode parameters must be an object'
-        if 'Colour' in parameters and not is_valid_colour(parameters['Colour']):
-            return 'Colour must be a #RRGGBB hex colour'
+        if 'colour' in parameters and not is_valid_colour(parameters['colour']):
+            return 'colour must be a #RRGGBB hex colour'
         if mode == 'Colour':
-            if 'Kelvin' in parameters and not is_valid_kelvin(parameters['Kelvin']):
-                return 'Kelvin must be a whole number, {}-{}'.format(MIN_KELVIN, MAX_KELVIN)
+            if 'kelvin' in parameters and not is_valid_kelvin(parameters['kelvin']):
+                return 'kelvin must be a whole number, {}-{}'.format(MIN_KELVIN, MAX_KELVIN)
             return None
-        speed = parameters.get('Speed')
+        speed = parameters.get('speed')
         if speed is not None and (not isinstance(speed, int) or isinstance(speed, bool) or not 1 <= speed <= 10):
-            return 'Speed must be a whole number, 1-10'
+            return 'speed must be a whole number, 1-10'
         check = getattr(self.effects[mode], 'check', None)
         return check(parameters) if check else None
 
@@ -161,20 +161,20 @@ class Light:
         if mode is not None and mode != self.mode:
             self.mode = mode
             # A new mode starts from its defaults; Colour keeps its colour
-            self.parameters = {'Colour': hex_colour(*self._colour)} if mode == 'Colour' else {}
+            self.parameters = {'colour': hex_colour(*self._colour)} if mode == 'Colour' else {}
             self._effect = None
         if parameters:
-            if self.mode == 'Colour' and 'Kelvin' in parameters:
-                parameters = dict(parameters, Colour=kelvin_colour(parameters['Kelvin']))
-            elif self.mode == 'Colour' and 'Colour' in parameters:
-                self.parameters.pop('Kelvin', None)
+            if self.mode == 'Colour' and 'kelvin' in parameters:
+                parameters = dict(parameters, colour=kelvin_colour(parameters['kelvin']))
+            elif self.mode == 'Colour' and 'colour' in parameters:
+                self.parameters.pop('kelvin', None)
             self.parameters.update(parameters)
             if self._effect is not None and hasattr(self._effect, 'update'):
                 self._effect.update(self.parameters)
             elif any(key in parameters for key in getattr(self.effects.get(self.mode), 'remakes', ())):
                 self._effect = None  # made again with them (an effect class's remakes, such as a style)
         if self.mode == 'Colour':
-            self._fade_colour(rgb(self.parameters['Colour']), fade)
+            self._fade_colour(rgb(self.parameters['colour']), fade)
         if brightness is not None:
             self.brightness = brightness
         if on is not None:
@@ -187,9 +187,14 @@ class Light:
         self._wake.set()
         return None
 
+    def remake(self):
+        """Makes the effect again: for a product setting that changes how its effects draw (an LED layout, say)."""
+        self._effect = None
+        self._wake.set()
+
     def speed(self):
         """The current animation's speed (1-10): its own, or the setting's."""
-        return self.parameters.get('Speed') or self.settings.get('device', 'effect_speed')
+        return self.parameters.get('speed') or self.settings.get('device', 'effect_speed')
 
     def alert(self, colour=None, seconds=None, on_ms=None, off_ms=None, brightness=None, test=False):
         """Starts an alert (or starts it again), with the alert settings for anything not given. Returns why it
@@ -201,9 +206,9 @@ class Light:
         colour, seconds, brightness = setting('colour', colour), setting('seconds', seconds), setting('brightness', brightness)
         on_ms, off_ms = setting('on_ms', on_ms), setting('off_ms', off_ms)
         if not is_valid_colour(colour):
-            return 'Colour must be a #RRGGBB hex colour'
-        for name, value, low, high in (('Seconds', seconds, 1, 3600), ('OnMs', on_ms, 50, 10000),
-                                       ('OffMs', off_ms, 0, 10000), ('Brightness', brightness, 1, 100)):
+            return 'colour must be a #RRGGBB hex colour'
+        for name, value, low, high in (('seconds', seconds, 1, 3600), ('on_ms', on_ms, 50, 10000),
+                                       ('off_ms', off_ms, 0, 10000), ('brightness', brightness, 1, 100)):
             if not isinstance(value, int) or isinstance(value, bool) or not low <= value <= high:
                 return '{} must be a whole number, {}-{}'.format(name, low, high)
         started = self._alert is None
@@ -237,14 +242,14 @@ class Light:
         return self.on
 
     def state(self):
-        """As PlasmaStick's MQTT state: {"State", "Mode", "ModeParameters", "Brightness"}. An effect class can say what
+        """The light's state, as MQTT has it: {"state", "mode", "parameters", "brightness"}. An effect class can say what
         it uses when a parameter isn't given (defaults(light), such as the speed), which the state shows too."""
         parameters = dict(self.parameters)
         defaults = getattr(self.effects.get(self.mode), 'defaults', None)
         if defaults is not None:
             for key, value in defaults(self).items():
                 parameters.setdefault(key, value)
-        return {'State': self.on, 'Mode': self.mode, 'ModeParameters': parameters, 'Brightness': self.brightness}
+        return {'state': self.on, 'mode': self.mode, 'parameters': parameters, 'brightness': self.brightness}
 
     # Drawing
 

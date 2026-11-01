@@ -4,7 +4,7 @@ A light's group (base.lightmqtt; mqtt.group): loaded only when the light is in o
 from base.compat import asyncio, json
 
 # The mode parameters a group passes on
-_GROUP_PARAMETERS = ('Colour', 'Kelvin', 'Speed', 'Style')
+_GROUP_PARAMETERS = ('colour', 'kelvin', 'speed', 'style')
 
 GROUP_SETTLE_MS = 300
 
@@ -12,11 +12,11 @@ GROUP_SETTLE_MS = 300
 def group_payload(light, name):
     """The group's new state after a change here: the light's state, with the parameters that define the mode."""
     state = light.state()
-    parameters = {k: v for k, v in state['ModeParameters'].items() if k in _GROUP_PARAMETERS}
-    if 'Kelvin' in parameters:
-        parameters.pop('Colour', None)  # the temperature says it
-    return json.dumps({'State': state['State'], 'Mode': state['Mode'], 'ModeParameters': parameters,
-                       'Brightness': state['Brightness'], 'From': name})
+    parameters = {k: v for k, v in state['parameters'].items() if k in _GROUP_PARAMETERS}
+    if 'kelvin' in parameters:
+        parameters.pop('colour', None)  # the temperature says it
+    state['parameters'], state['from'] = parameters, name  # light.state() is made afresh
+    return json.dumps(state)
 
 
 def group_change(payload, light, follow_brightness):
@@ -25,21 +25,21 @@ def group_change(payload, light, follow_brightness):
     left out (it keeps its own). Raises ValueError for a state it can't use."""
     if not isinstance(payload, dict):
         raise ValueError('a group state must be a JSON object')
-    state, mode, brightness = payload.get('State'), payload.get('Mode'), payload.get('Brightness')
-    parameters = payload.get('ModeParameters') or {}
+    state, mode, brightness = payload.get('state'), payload.get('mode'), payload.get('brightness')
+    parameters = payload.get('parameters') or {}
     if not isinstance(state, bool):
-        raise ValueError('State must be true or false')
+        raise ValueError('state must be true or false')
     if isinstance(brightness, bool) or not isinstance(brightness, int) or not 1 <= brightness <= 100:
-        raise ValueError('Brightness must be 1-100')
+        raise ValueError('brightness must be 1-100')
     if not isinstance(parameters, dict):
-        raise ValueError('ModeParameters must be an object')
+        raise ValueError('parameters must be an object')
     change = {}
     if state != light.on:
         change['on'] = state
     if mode in light.modes:
         wanted = {k: v for k, v in parameters.items() if k in _GROUP_PARAMETERS}
-        if 'Kelvin' in wanted:
-            wanted.pop('Colour', None)
+        if 'kelvin' in wanted:
+            wanted.pop('colour', None)
         if light.parameters_error(mode, wanted):
             wanted = {}
         differs = any(str(v).lower() != str(light.parameters.get(k)).lower() for k, v in wanted.items())
@@ -62,6 +62,5 @@ async def publish(mq, client):
             mq._group_changed.clear()
             payload = group_payload(mq.light, mq.name)
             await client.publish(mq.topics['group'], payload, retain=True)
-            await client.publish(mq.topics['group_old'], payload, retain=True)
     except OSError:
         client.close()
