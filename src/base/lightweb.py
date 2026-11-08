@@ -1,8 +1,9 @@
 """
 A light's routes, as PlasmaStick's (called by base.web for a light only, so a sensor doesn't carry them): POST
 /api/power/on, /api/power/off, /api/power/toggle, /api/mode ({"mode", "parameters"}), /api/brightness ({"brightness"}),
-/api/alert ({"colour", "seconds", "on_ms", "off_ms", "brightness"}, each optional, and "test": true to show one with
-alerts switched off) and /api/alert/stop.
+/api/default (back to the user's default look), /api/default/save (the look now becomes it), /api/alert ({"colour",
+"seconds", "on_ms", "off_ms", "brightness"}, each optional, and "test": true to show one with alerts switched off) and
+/api/alert/stop.
 """
 from base.web import _json
 
@@ -42,6 +43,20 @@ def routes(app, device):
         if error:
             return {'success': False, 'error': error}, 400
         return {'success': True, 'brightness': light.brightness}
+
+    @app.post('/api/default')
+    async def to_default(request):
+        error = light.to_default()
+        if error:
+            return {'success': False, 'error': error}, 400
+        return {'success': True, 'mode': light.mode}
+
+    @app.post('/api/default/save')
+    async def save_default(request):
+        error = device.change({'device': light.look()})
+        if error:
+            return {'success': False, 'error': error}, 400
+        return {'success': True}
 
     @app.post('/api/alert')
     async def alert(request):

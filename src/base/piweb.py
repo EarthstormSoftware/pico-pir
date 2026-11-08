@@ -5,7 +5,8 @@ with it), GET and POST /api/clock ({"time_zone", "ntp"}, and the zones to choose
 ({"confirm": true}: restarts the Pi), GET and POST /api/wifi ({"fallback": {"enabled",
 "after_minutes", "for_minutes"}}: setup mode when Wi-Fi doesn't connect; and {"network":
 {"ssid", "password"}}: a new network, which the Pi restarts onto, on trial), GET /api/wifi/networks (a scan), POST
-/api/setup-mode and /api/factory-reset (each {"confirm": true}).
+/api/setup-mode and /api/factory-reset (each {"confirm": true}), GET and POST /api/display ({"rotation"}: the
+display's picture turned clockwise, which the Pi restarts to use; GET also says whether a display is "connected").
 """
 from base.compat import asyncio
 from base.log import Log
@@ -125,6 +126,26 @@ def routes(app, device):
             return answer
         # The OS uses it from the next start: the answer goes first, then the Pi restarts onto it
         return after_answer('Restarting the Pi onto a new Wi-Fi network', platform.restart_device)
+
+    @app.get('/api/display')
+    async def display(request):
+        if not platform.os_display():
+            return {'available': False}
+        try:
+            return dict(platform.display(), available=True)
+        except platform.RequestError as e:
+            return {'success': False, 'error': str(e)}, 400
+
+    @app.post('/api/display')
+    async def set_display(request):
+        rotation = _json(request).get('rotation')
+        if type(rotation) is not int or rotation not in platform.ROTATIONS:
+            return {'success': False, 'error': 'rotation must be 0, 90, 180 or 270'}, 400
+        answer = asked(lambda: platform.set_display_rotation(rotation))
+        if not isinstance(answer, dict):
+            return answer
+        # The OS uses it from the next start: the answer goes first, then the Pi restarts
+        return after_answer('Restarting the Pi to turn the display', platform.restart_device)
 
     @app.post('/api/setup-mode')
     async def setup_mode(request):

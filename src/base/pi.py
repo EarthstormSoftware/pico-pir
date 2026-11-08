@@ -3,23 +3,26 @@ The platform for a Juggle OS app: what the OS does that a Pico does itself.
 
 The app's state (config.json and anything else it writes) is in JUGGLE_STATE (/data/app-state), as the rest of the Pi
 is read-only. The device name is the Pi's: it's shown, and changed in the OS's setup mode (SSH and juggle know the Pi
-by it). A restart ends the app, which systemd starts again.
+by it). A restart ends the app, which systemd starts again; powered_up() tells that from the power coming on.
 
 What the OS does for the app, it asks for through app-request (the app user may run it as root by sudo): a new
 version of itself, on trial; the time zone and time server; restarting the Pi; setup mode (to rename the Pi, or change
 its Wi-Fi), a factory reset, and the Wi-Fi fallback (setup mode by itself when Wi-Fi doesn't connect: on or off, after
-how long, for how long); a new Wi-Fi network. Juggle OS's app contract (docs/app-contract.md there) has them all from
-Juggle 1.0, and the OS says which contract it gives in JUGGLE (juggle()): the version, never the presence of a file,
-says what's there. On a PC, or an OS before 1.0, there's no JUGGLE, so none of it is offered. systemd's watchdog
+how long, for how long); a new Wi-Fi network; the display's rotation. Juggle OS's app contract (docs/app-contract.md
+there) has them all from Juggle 1.0 (the display's rotation from 1.1), and the OS says which contract it gives in
+JUGGLE (juggle()): the version, never the presence of a file, says what's there. On a PC, or an OS before 1.0, there's no JUGGLE, so none of it is offered. systemd's watchdog
 restarts the app if its event loop stops (watchdog()).
 """
 import asyncio
 import json
 import os
+import signal
 import socket
 import subprocess
 import time
 from pathlib import Path
+
+from base.compat import write_atomically
 
 NAME_EDITABLE = False
 STATE = os.environ.get('JUGGLE_STATE', str(Path.cwd() / 'state'))
@@ -35,6 +38,33 @@ def state_path(name):
 
 def device_name():
     return socket.gethostname()
+
+
+BOOT_ID = '/proc/sys/kernel/random/boot_id'
+
+
+def powered_up():
+    """Whether this start is the power coming on (or back after a cut). Not if the Pi hasn't restarted since the app
+    last ran (the kernel's boot id is the same), nor if the app was stopped as the Pi shut down cleanly (on_stop): a
+    restart, an update. Call once, as it notes this start for the next."""
+    seen, stopped = state_path('boot-id'), state_path('stopped')
+    boot, last = _read(BOOT_ID), _read(seen)
+    clean = os.path.exists(stopped)
+    if boot is not None:
+        write_atomically(seen, boot)
+    if clean:
+        os.remove(stopped)
+    return boot != last and not clean
+
+
+def on_stop(keep):
+    """When systemd stops the app (a clean shutdown or restart; a power cut gives no warning): keep() is called, and
+    the stop noted for powered_up()."""
+    def stop(signum, frame):
+        keep()
+        write_atomically(state_path('stopped'), '')
+        os._exit(0)
+    signal.signal(signal.SIGTERM, stop)
 
 
 def _read(path):
@@ -64,7 +94,7 @@ def health():
         'temperature_c': round(int(temperature) / 1000, 1) if temperature else None,
         'load': round(os.getloadavg()[0], 2) if hasattr(os, 'getloadavg') else None,
         'os': {'version': release.get('VERSION'), 'build': release.get('BUILD_STAMP'), 'slot': slot or None,
-               'requests': os_requests(), 'setup': os_setup()},
+               'requests': os_requests(), 'setup': os_setup(), 'display': os_display()},
         'update': update_result(),
     }
 
@@ -211,6 +241,32 @@ def change_wifi(ssid, password):
     if not os_wifi():
         raise RequestError(ONLY)
     _request('wifi', ssid, given=password + '\n')
+
+
+ONLY_DISPLAY = 'Only on Juggle OS 1.1 or later.'
+ROTATIONS = (0, 90, 180, 270)
+
+
+def os_display():
+    """Whether the OS turns the display (the official Touch Display) for the app."""
+    return _since((1, 1))
+
+
+def display():
+    """{"connected", "rotation"}: whether the Pi has a display, and how far its picture is turned clockwise."""
+    if not os_display():
+        raise RequestError(ONLY_DISPLAY)
+    return clock_settings()['display']
+
+
+def set_display_rotation(rotation):
+    """Turns the display's picture (and its touch screen) clockwise by 0, 90, 180 or 270 degrees, from the Pi's next
+    start."""
+    if not os_display():
+        raise RequestError(ONLY_DISPLAY)
+    if rotation not in ROTATIONS:
+        raise RequestError('The rotation is 0, 90, 180 or 270.')
+    _request('display-rotation', str(rotation))
 
 
 def _need_setup():

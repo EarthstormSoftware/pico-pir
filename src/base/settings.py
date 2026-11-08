@@ -17,13 +17,14 @@ TAG = 'SETTINGS'
 
 
 class Setting:
-    def __init__(self, default, check=None, restart=False, secret=False, store=None, reveal=None):
+    def __init__(self, default, check=None, restart=False, secret=False, store=None, reveal=None, was=None):
         self.default = default
         self.check = check  # check(value): why it can't be used, or None
         self.restart = restart
         self.secret = secret
         self.store = store  # store(value): what's kept (a secret's hash); None (JSON null) clears a secret
         self.reveal = reveal  # reveal(kept): the secret itself, from what's kept
+        self.was = was  # (the key it had before, in the same section, what(old value): this setting's value)
 
 
 def is_int(low, high):
@@ -98,6 +99,9 @@ class Settings:
             for section, settings in schema.items():
                 for key, setting in settings.items():
                     value = stored.get(section, {}).get(key)
+                    if value is None and setting.was is not None:
+                        old = stored.get(section, {}).get(setting.was[0])
+                        value = None if old is None else setting.was[1](old)
                     if value is None:
                         continue
                     if setting.secret or setting.check is None or setting.check(value) is None:

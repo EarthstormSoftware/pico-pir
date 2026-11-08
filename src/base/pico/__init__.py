@@ -210,6 +210,11 @@ def mqtt_client(**options):
     return Client(clean=s.get('mqtt', 'clean'), queue_len=s.get('mqtt', 'queue_len'), **options)
 
 
+def powered_up():
+    from base.pico import wdt as watchdog
+    return watchdog.powered_up()
+
+
 def restart():
     from base.pico import wdt as watchdog
     watchdog.disable()  # the next start makes its own

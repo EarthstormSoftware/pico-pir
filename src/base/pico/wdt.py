@@ -17,6 +17,9 @@ machine.reset_cause() can't tell a watchdog restart from machine.reset() on the
 RP2040 (the port resets with the watchdog), so before letting it fire the
 callback leaves a note in a watchdog scratch register, which survives the
 restart: take_stall_report() reads it at the next boot.
+
+A scratch register keeps its value through every restart but a power cut, so
+powered_up() tells the power coming on from a restart.
 """
 import machine
 import time
@@ -29,6 +32,8 @@ _CTRL_CLR = _WATCHDOG + 0x3000  # atomic bit-clear alias of CTRL
 _ENABLE = 1 << 30
 _SCRATCH0 = _WATCHDOG + 0x0C  # 0-3 are free; the SDK uses 4-7 for its own reboots
 _MARK = 0x5A1A0000  # high half: "stalled"; low half: the stall in seconds
+_SCRATCH1 = _WATCHDOG + 0x10
+_RUNNING = 0x5A1B0001  # left in _SCRATCH1 by every start
 
 
 class Watchdog:
@@ -56,6 +61,13 @@ class Watchdog:
 def disable():
     """Stop the watchdog, if it's running."""
     machine.mem32[_CTRL_CLR] = _ENABLE
+
+
+def powered_up():
+    """Whether this start is the power coming on, not a restart. Call once, as it notes this start for the next."""
+    restarted = machine.mem32[_SCRATCH1] & 0xFFFFFFFF == _RUNNING
+    machine.mem32[_SCRATCH1] = _RUNNING
+    return not restarted
 
 
 def take_stall_report():

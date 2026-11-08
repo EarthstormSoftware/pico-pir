@@ -13,10 +13,16 @@ ends, such as a race start).
 
 An alert interrupts whatever the light is doing, on or off: it flashes a colour for a while, then the light carries
 on as it was. The alert settings say how, and whether alerts are switched on (a test alert works either way).
+
+How the light looks (its mode and parameters, and brightness) has three layers. The setup default is the settings'
+own defaults (a warm white, not too bright), which only a reset of the settings brings back. The user's default starts
+as that, and is the default_ settings: look() gives what makes the look now the default, and to_default() goes back
+to it. The last state is whatever the light was last told, by anything but an alert, kept in a file of its own: a
+restart or an update always comes back as it was, and when the power comes on, device.power_on says what happens.
 """
-from base.compat import asyncio, ticks_ms, ticks_diff, sleep_ms
+from base.compat import asyncio, json, ticks_ms, ticks_diff, sleep_ms, write_atomically
 from base.log import Log
-from base.settings import Setting, is_int, is_bool
+from base.settings import Setting, is_int, is_bool, is_one_of
 
 TAG = 'LIGHT'
 
@@ -24,6 +30,9 @@ MIN_KELVIN, MAX_KELVIN = 2000, 6500
 DEFAULT_COLOUR = '#ffb46b'  # a warm white
 # A frame every 20 ms while something moves (a fade or an animation)
 FRAME_MS = 20
+# The last state is saved this soon after it changes, at most: often enough to survive a power cut, seldom enough for
+# the flash
+KEEP_EVERY_S = 30
 _HEX_DIGITS = '0123456789abcdefABCDEF'
 
 
@@ -64,12 +73,26 @@ def _is_colour(value):
     return None if is_valid_colour(value) else 'must be a #RRGGBB hex colour'
 
 
+def _is_mode_parameters(value):
+    return None if isinstance(value, dict) else 'must be an object of parameters by mode'
+
+
+def _power_on_was(default_state):
+    """device.power_on for a device that had device.default_state, a tick box for being on at the start."""
+    return 'restore' if default_state else 'off'
+
+
 # The settings every light has, next to BASE_SETTINGS (the product adds the default mode's choices)
 LIGHT_SETTINGS = {
     'device': {
-        'default_state': Setting(True, is_bool),
+        # When the power comes on (not a restart, which comes back as it was): as it went off, on or off with the look
+        # it had, or on with the user's default
+        'power_on': Setting('restore', is_one_of('restore', 'on', 'off', 'default'),
+                            was=('default_state', _power_on_was)),
+        # The user's default: the mode, its colour if it's Colour, otherwise its parameters ({mode: parameters})
         'default_mode': Setting('Colour'),
         'default_colour': Setting(DEFAULT_COLOUR, _is_colour),
+        'default_parameters': Setting({}, _is_mode_parameters),
         'default_brightness': Setting(66, is_int(1, 100)),
         # Turning on and off, and changing the brightness or colour, fade over this long (0: at once)
         'transition_ms': Setting(500, is_int(0, 10000)),
@@ -90,9 +113,10 @@ LIGHT_SETTINGS = {
 
 
 class Light:
-    def __init__(self, output, settings, modes=None, product=None, min_level=0.06):
+    def __init__(self, output, settings, modes=None, product=None, min_level=0.06, memory=None, powered_up=True):
         """output: the LEDs (count, show(frame)); modes: the product's effects by name; min_level: the share of full
-        output that 1% brightness draws (the dimmest a full channel still shows on these LEDs)."""
+        output that 1% brightness draws (the dimmest a full channel still shows on these LEDs); memory: the file for
+        the last state (None: none is kept); powered_up: whether this start is the power coming on, not a restart."""
         self.output = output
         self.settings = settings
         self.effects = modes or {}
@@ -116,11 +140,114 @@ class Light:
         self._colour_fade = None  # (from rgb, to rgb, start, ms)
         self._wake = asyncio.Event()
         self._alert = None  # (rgb, start, ms, on_ms, off_ms, level) while one shows
-        default_mode = settings.get('device', 'default_mode')
-        error = self.set(on=settings.get('device', 'default_state'),
-                         mode=default_mode if default_mode in self.modes else 'Colour', transition_ms=0)
+        self.memory = memory
+        self._kept = self._recall()
+        self._start(powered_up)
+
+    # The start, and what's remembered
+
+    def _recall(self):
+        """The last state, as keep() saved it, or None if there's none this light can use."""
+        if self.memory is None:
+            return None
+        try:
+            with open(self.memory) as f:
+                kept = json.loads(f.read())
+            on, mode, parameters, brightness = kept['on'], kept['mode'], kept['parameters'], kept['brightness']
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+        if (not isinstance(on, bool) or not isinstance(parameters, dict) or is_int(1, 100)(brightness)
+                or self.parameters_error(mode, parameters)):
+            Log.warn(TAG, "The last state can't be used: starting from the default")
+            return None
+        return kept
+
+    def _start(self, powered_up):
+        kept = self._kept
+        power_on = self.settings.get('device', 'power_on')
+        if kept is not None and not powered_up:
+            look, on = kept, kept['on']
+        elif kept is None or power_on == 'default':
+            look, on = None, power_on != 'off'
+        else:
+            look, on = kept, kept['on'] if power_on == 'restore' else power_on == 'on'
+        if look is None:
+            error = self.to_default(on=on, transition_ms=0)
+        else:
+            error = self.set(on=on, mode=look['mode'], parameters=look['parameters'], brightness=look['brightness'],
+                             transition_ms=0)
         if error:
-            Log.warn(TAG, 'Default mode: ' + error)
+            Log.warn(TAG, 'Starting: ' + error)
+
+    def _now(self):
+        return {'on': self.on, 'mode': self.mode, 'parameters': dict(self.parameters), 'brightness': self.brightness}
+
+    def keep(self):
+        """Saves the last state, if it has changed since it was last saved."""
+        now = self._now()
+        if self.memory is None or now == self._kept:
+            return
+        try:
+            write_atomically(self.memory, json.dumps(now))
+            self._kept = now
+        except OSError as e:
+            Log.warn(TAG, "Couldn't save the last state: {}".format(e))
+
+    def forget(self):
+        """For a reset of the settings: the last state goes, and none is kept until the next start."""
+        import os
+        memory, self.memory = self.memory, None
+        if memory is not None:
+            try:
+                os.remove(memory)
+            except OSError:
+                pass  # there was none yet
+
+    async def remember(self):
+        while self.memory is not None:
+            await asyncio.sleep(KEEP_EVERY_S)
+            self.keep()
+
+    # The user's default
+
+    def default_look(self):
+        """The default's (mode, parameters); a mode this light doesn't have is Colour, and parameters it can't use
+        are left out."""
+        mode = self.settings.get('device', 'default_mode')
+        if mode not in self.modes:
+            mode = 'Colour'
+        if mode == 'Colour':
+            return mode, {'colour': self.settings.get('device', 'default_colour')}
+        parameters = self.settings.get('device', 'default_parameters').get(mode) or {}
+        return mode, {} if self.parameters_error(mode, parameters) else parameters
+
+    def to_default(self, on=None, transition_ms=None):
+        """Goes back to the user's default look (on stays as it is, unless given). Returns why it couldn't, or None."""
+        mode, parameters = self.default_look()
+        if mode == self.mode and mode != 'Colour':
+            # Only the default's parameters: none the mode has been given since
+            self.parameters = {}
+            self._effect = None
+        return self.set(on=on, mode=mode, parameters=parameters, transition_ms=transition_ms,
+                        brightness=self.settings.get('device', 'default_brightness'))
+
+    def at_default(self):
+        """Whether the light looks as its default does."""
+        mode, parameters = self.default_look()
+        if mode != self.mode or self.brightness != self.settings.get('device', 'default_brightness'):
+            return False
+        if mode == 'Colour':
+            return self.parameters['colour'].lower() == parameters['colour'].lower()
+        return self.parameters == parameters
+
+    def look(self):
+        """The settings that make the look now the user's default ({key: value}, for the device section)."""
+        settings = {'default_mode': self.mode, 'default_brightness': self.brightness}
+        if self.mode == 'Colour':
+            settings['default_colour'] = self.parameters['colour'].lower()
+        else:
+            settings['default_parameters'] = {self.mode: dict(self.parameters)}
+        return settings
 
     # Changes
 

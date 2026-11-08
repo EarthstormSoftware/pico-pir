@@ -87,8 +87,9 @@ class Device:
         self.light = None
         if is_light:
             from base.light import Light
+            powered_up = platform.powered_up() if hasattr(platform, 'powered_up') else True
             self.light = Light(product.output(self), self.settings, product.LIGHT_MODES, product,
-                               getattr(product, 'MIN_LEVEL', 0.06))
+                               getattr(product, 'MIN_LEVEL', 0.06), platform.state_path('light.json'), powered_up)
         self.mqtt = None  # until it's made, as making it asks info() which figures there are
         if is_light:
             from base.lightmqtt import LightMqtt as Mqtt
@@ -114,6 +115,7 @@ class Device:
                 'parameters': light.state()['parameters'],  # with an effect's defaults, as MQTT has them
                 'brightness': light.brightness,
                 'modes': light.modes,
+                'at_default': light.at_default(),
                 'alert': {'enabled': self.settings.get('alert', 'enabled'), 'active': light.alerting},
             }
         if self.mqtt is not None:
@@ -159,6 +161,8 @@ class Device:
         Log.warn(TAG, 'Resetting the settings')
         # Except the ones that describe the hardware rather than a preference (RESET_KEEPS: (section, key) pairs)
         self.settings.reset(getattr(self.product, 'RESET_KEEPS', ()))
+        if self.light is not None:
+            self.light.forget()  # so it starts again from the setup default
         if hasattr(self.platform, 'reset'):
             self.platform.reset()
 
@@ -166,6 +170,8 @@ class Device:
         # Long enough for the response to go
         await asyncio.sleep(0.3)
         Log.info(TAG, 'Restarting')
+        if self.light is not None:
+            self.light.keep()
         self.platform.restart()
 
     async def main(self):
@@ -173,6 +179,9 @@ class Device:
         tasks = []
         if self.light is not None:
             tasks.append(asyncio.create_task(self.light.run()))
+            tasks.append(asyncio.create_task(self.light.remember()))
+            if hasattr(self.platform, 'on_stop'):
+                self.platform.on_stop(self.light.keep)
         if hasattr(self.product, 'tasks'):
             tasks += [asyncio.create_task(task) for task in self.product.tasks(self)]
         if hasattr(self.platform, 'start'):

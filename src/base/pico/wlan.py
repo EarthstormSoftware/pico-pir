@@ -18,6 +18,8 @@ TAG = 'WLAN'
 # cyw43 link status 2: associated, waiting for DHCP. The network module has no constant for it.
 STAT_NOIP = 2
 TRIAL_S = 300
+# The first join after power-on can fail while the radio settles; the next one, this soon, usually works
+FIRST_RETRY_S = 5
 
 INACTIVE, CONNECTING, CONNECTED, WAITING = 0, 1, 2, 3
 
@@ -114,6 +116,15 @@ class Wlan:
             return False
         return now - self.started >= self._get('fallback_after_min') * 60 or not self.can_retry()
 
+    def _first_join(self):
+        return not self.ever_connected and self.retries == 1
+
+    def _retry_wait(self):
+        wait = self._get('reconnect_wait')
+        if self._first_join():
+            return min(FIRST_RETRY_S, wait)
+        return wait
+
     def _failed(self, reason):
         if self.fallback_due(time.time()):
             if self.trial and self.give_up is not None:
@@ -124,6 +135,7 @@ class Wlan:
                                'mode'.format(reason, self.retries))
                 self.setup_mode()
         if self.can_retry():
+            Log.warn(TAG, '{}; trying again in {} s'.format(reason, self._retry_wait()))
             self._disconnected(True)
         else:
             self._disconnected(False)
@@ -143,11 +155,14 @@ class Wlan:
                     if now - self.connect_started > self._get('connect_timeout'):
                         self._failed('Connecting timed out')
                 else:
-                    self._failed('Could not connect (status {})'.format(status))
+                    self._failed('Could not connect: {}'.format(_status_name(status)))
+                    # The radio says so for the first join after power-on now and then, with the right password
+                    if self._first_join() and status == getattr(network, 'STAT_WRONG_PASSWORD', None):
+                        Log.info(TAG, '"Wrong password" can be misleading on the first join after a start; retrying')
             elif self.state == WAITING:
                 if self.fallback_due(now):
                     self._failed('Still not connected')
-                elif now - self.disconnected_at > self._get('reconnect_wait'):
+                elif now - self.disconnected_at > self._retry_wait():
                     if self.can_retry():
                         self.connect()
                     else:
@@ -158,6 +173,13 @@ class Wlan:
             elif self.state == INACTIVE and self.can_retry():
                 self.connect()
             await sleep_ms(200)
+
+
+def _status_name(status):
+    for name in ('STAT_WRONG_PASSWORD', 'STAT_NO_AP_FOUND', 'STAT_CONNECT_FAIL'):
+        if getattr(network, name, None) == status:
+            return '{} (status {})'.format(name[5:].lower().replace('_', ' '), status)
+    return 'status {}'.format(status)
 
 
 def strongest(scan):

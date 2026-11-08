@@ -312,7 +312,7 @@ var Base = (function () {
   // the speed, colour and white rows. opts.speed: the modes with a speed; opts.colour: the modes the colour picker
   // sets (Colour's own, or another's); opts.acted(): after each change is sent.
   function light(opts) {
-    var expected = {}, modeButtons = [], defaultColour = null;
+    var expected = {}, modeButtons = [];
     var sending = { colour: false, brightness: false }, pending = { colour: null, brightness: null };
     opts = opts || {};
     var speedModes = opts.speed || [], colourModes = opts.colour || ['Colour'];
@@ -369,22 +369,22 @@ var Base = (function () {
         el('kelvin_text').textContent = kelvin ? kelvin + ' K' : '—';
       }
       el('colour_text').textContent = mode === 'Colour' ? 'Pick a colour' : colourOn ? mode + ' colour' : 'Colour mode only';
-      showDefault(mode);
+      showDefault();
     }
 
-    // Default and Set as Default: Colour mode only, and not when the default is already showing
-    function showDefault(mode) {
-      if (!defaultColour) return;
-      el('default_swatch').style.backgroundColor = defaultColour;
-      var l = info && info.light, current = l && l.mode === 'Colour' && l.parameters.colour;
-      el('default_btn').disabled = el('set_default_btn').disabled = mode !== 'Colour' ||
-        (!!current && !sending.colour && current.toLowerCase() === defaultColour.toLowerCase());
+    // Default and Set as Default, for the whole look: not when the default is already showing. The swatch is the
+    // default's colour, if it has one
+    function showDefault() {
+      if (!config) return;
+      var colour = config.device.default_mode === 'Colour';
+      el('default_swatch').style.display = colour ? '' : 'none';
+      if (colour) el('default_swatch').style.backgroundColor = config.device.default_colour;
+      el('default_btn').disabled = el('set_default_btn').disabled = !!(info && info.light.at_default && !sending.colour);
     }
 
     function update(i) {
       var l = i.light;
       if (!modeButtons.length) buildModes(l.modes);
-      if (config) defaultColour = config.device.default_colour;
       var on = shown(l, 'state'), mode = shown(l, 'mode');
       el('state').textContent = l.alert && l.alert.active ? 'Alert' : on ? 'On' : 'Off';
       el('state').className = 'badge' + (on || (l.alert && l.alert.active) ? ' on' : '');
@@ -443,23 +443,18 @@ var Base = (function () {
     el('colour').addEventListener('input', function () { sendColour(el('colour').value); });
 
     el('default_btn').addEventListener('click', function () {
-      if (defaultColour) el('colour').value = defaultColour.toLowerCase();
       el('default_btn').disabled = true;
-      expect('mode', 'Colour');
-      act('/api/mode', { mode: 'Colour' });  // no colour: the default
+      act('/api/default', {});
     });
-    // The colour showing becomes the default
+    // The look showing becomes the default
     el('set_default_btn').addEventListener('click', function () {
-      var l = info && info.light, c = l && l.parameters.colour;
-      if (!c) return;
       el('set_default_btn').disabled = true;
-      api('/api/config', { device: { default_colour: c.toLowerCase() } }).then(function () {
-        defaultColour = c;
-        say('msg', 'Saved as the default colour.', true);
+      api('/api/default/save', {}).then(function () {
+        say('msg', 'Saved as your default.', true);
         setTimeout(function () { say('msg', ''); }, 3000);
-        loadSettings();
+        return loadSettings();
       }).catch(function (e) { say('msg', 'Not saved: ' + e.message); })
-        .then(function () { showDefault(info ? info.light.mode : null); });
+        .then(refresh);
     });
 
     // White and speed: sent when the slider is let go
@@ -671,6 +666,29 @@ var Base = (function () {
     });
   }
 
+  // The display's rotation (the OS's, from Juggle 1.1): shown on a Pi with a display (or one already turned), in
+  // display_rotation, saved by display_save, which restarts the Pi
+  function display() {
+    if (!el('display_save')) return;
+    var loaded = false;
+    infoListeners.push(function (i) {
+      if (loaded || !(i.os && i.os.display)) return;
+      loaded = true;
+      api('/api/display').then(function (d) {
+        el('display_rotation').value = String(d.rotation);
+        document.querySelectorAll('[data-os-display]').forEach(function (n) { n.hidden = !(d.connected || d.rotation); });
+      }).catch(function (e) { say('display_msg', 'Could not load the display settings: ' + e.message); });
+    });
+    el('display_save').addEventListener('click', function () {
+      if (!confirm('Turn the display and restart the Pi? It\'s back in about a minute.')) return;
+      say('display_msg', 'Saving…', true);
+      api('/api/display', { rotation: parseInt(el('display_rotation').value, 10) }).then(function () {
+        say('display_msg', 'Saved: restarting the Pi… (about a minute)', true);
+        waitForRestart(el('display_msg'));
+      }).catch(function (e) { say('display_msg', 'Not saved: ' + e.message); });
+    });
+  }
+
   // Renaming a device whose name is its own (a Pico's): the field device_name, saved by rename_save (POST /api/name),
   // from the next start
   function rename() {
@@ -693,7 +711,8 @@ var Base = (function () {
   // after the product's own (the .group elements it has). The <script> tag that loads this file says the platform
   // (data-platform="pico"; a Juggle app's otherwise) and whether the product is a light (data-light). A product's own
   // words replace a slot's default: <template data-slot="name">...</template> in the pane. Built as the file loads, so
-  // the product's script finds the fields; the markup is the base's own, so it's set as HTML.
+  // the product's script finds the fields; the markup is the base's own, so it's set as HTML. A Pi's Display section
+  // goes where the product puts <div data-base-display></div> (a tab of its own for the screen), or on the Device tab.
   var script = document.currentScript, pico = script && script.dataset.platform === 'pico',
     isLight = !!(script && 'light' in script.dataset);
 
@@ -710,6 +729,15 @@ var Base = (function () {
     '<input type="number" id="wifi_fallback_for" min="5" max="120" step="1"></div></div>' +
     '<button type="button" class="reset" id="wifi_save">Save</button>' +
     '<p class="msg" id="wifi_msg" role="status" aria-live="polite"></p>';
+
+  var DISPLAY = '<div data-os-display hidden><div class="sec">Display</div><div class="frow"><div class="field">' +
+    '<label for="display_rotation">Rotation</label><select id="display_rotation" aria-describedby="display_help">' +
+    '<option value="0">Normal</option><option value="90">Turned 90° clockwise</option>' +
+    '<option value="180">Upside down (180°)</option><option value="270">Turned 90° anticlockwise (270°)</option>' +
+    '</select></div></div><p class="note" id="display_help">The Pi\'s screen: its picture and touch screen turn ' +
+    'together. The Pi restarts to use it, and keeps it through updates and a factory reset.</p>' +
+    '<button type="button" class="reset" id="display_save">Save &amp; Restart</button>' +
+    '<p class="msg" id="display_msg" role="status" aria-live="polite"></p></div>';
 
   function wifiChange(where, who, password) {
     return '<div data-wifi-change hidden><p class="note">' + where + ' <b id="wifi_current">&hellip;</b>. A new network ' +
@@ -768,7 +796,7 @@ var Base = (function () {
         'long as set below, then carries on with its settings unless new ones are saved there.</p>' +
         '<div class="buttons"><button type="button" class="btn-full quiet" data-setup-mode data-msg="wifi_msg" ' +
         'data-confirm="Restart the Pi into setup mode? This page goes away until it\'s back.">Rename (setup mode)…</button></div>' +
-        FALLBACK + '</div>';
+        FALLBACK + '</div>' + DISPLAY;
     rest += '<div class="sec">Restart and Reset</div><p class="note">Reset puts every setting on these pages back to its ' +
       'default (the web password too)' + (pico ? ', but keeps the Wi-Fi network' + slot('keeps', '') +
         '. A factory reset also forgets the name and Wi-Fi, and starts setup mode.'
@@ -849,6 +877,8 @@ var Base = (function () {
         if (s.dataset.slot in slots) s.innerHTML = slots[s.dataset.slot];
       });
     });
+    var place = document.querySelector('[data-base-display]'), section = document.querySelector('[data-os-display]');
+    if (place && section) place.parentNode.replaceChild(section, place);
     // A Pico's time zones, as offsets in minutes: every hour, and the half and quarter hours in use
     if (el('utc_offset_min')) {
       [-720, -660, -600, -570, -540, -480, -420, -360, -300, -240, -210, -180, -120, -60, 0, 60, 120, 180, 210, 240,
@@ -866,6 +896,7 @@ var Base = (function () {
     settingsForms();
     actions();
     wifi();
+    display();
     rename();
     setInterval(function () { if (!document.hidden) refresh(); }, 3000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) refresh(); });
