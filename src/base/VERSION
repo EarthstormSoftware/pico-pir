@@ -1,4 +1,4 @@
-version: working copy
+version: v1.1.0
 commit: dfd2742
 48fda65767bbc8588160c4bc3348fbe44904cac3d23e1a96f4b7e16820fb453a  __init__.py
 eecc7a14b051bbdef0e067d39f9760b8ea2b45d04481af25acc5d71fab80f4a6  compat.py
