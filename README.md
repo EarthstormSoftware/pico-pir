@@ -132,8 +132,7 @@ the new user; `check` then waits for the board to log in and runs the smoke test
 
 ### Updating over Wi-Fi
 
-Once a device runs this firmware, later versions can go over Wi-Fi. A device on 1.0.0 takes 1.0.1 first: its
-updater can only write the folders 1.0 has, and 1.0.1 lets it write App Base's too:
+Once a device runs this firmware, later versions can go over Wi-Fi:
 
 ```powershell
 $env:PICOPIR_WEB_PASSWORD = '...'   # or leave it unset to be asked

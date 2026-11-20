@@ -52,7 +52,6 @@ state and commands and its page; the base does the rest, from a copy in `src/bas
   carries on as it was, and 1.0 can still read them if the update rolls back.
 - The Wi-Fi fallback becomes three settings (on or off, after how many minutes, for how many), as on Juggle OS, and
   the Network tab can start setup mode. A factory reset is `/api/factory-reset`.
-- 1.0.1 first, only so a 1.0.0 device's updater may write App Base's folders: then 2.0 goes over Wi-Fi.
 - Then: the schedule (sensing on or off at set times), from App Base. (Done.)
 - Checked on the device: the boot log and heap, the smoke test, Home Assistant unchanged. (Done: smoke
   test 35/35, about 62 KB free.)
